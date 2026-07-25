@@ -137,8 +137,17 @@ Vùng tua cao (30.000 – 152.000 RPM):
 **Phần cứng**:
 - Loại cảm biến: **ZJTM-04A-1.2** — turbine flow sensor dùng Hall effect (nguyên lý giống KMZ10A RPM: bánh turbine quay theo dòng chảy, nam châm trên turbine tạo xung mỗi vòng qua cảm biến Hall)
 - Điện áp hoạt động: **3.5–24VDC**
-- Ngõ ra: xung digital (tần số ∝ lưu lượng)
+- Ngõ ra: **NPN Pulse** (open-collector — bắt buộc phải có điện trở pull-up ngoài, xem sơ đồ dưới)
+- Lưu lượng đo được: **0.05–1.5 L/phút**
 - Vị trí lắp: **ngay sau bơm nhiên liệu, trước van solenoid dầu chính** — đo lưu lượng thực tế đã bơm ra, không phải suy đoán từ duty cycle PWM
+
+**Dải tần số xung thực tế** (tính theo công thức hiệu chuẩn, xem bên dưới):
+```
+Tại Q_min = 0.05 L/phút  →  F = 190×0.05 − 5 = 4.5 Hz
+Tại Q_max = 1.5  L/phút  →  F = 190×1.5  − 5 = 280 Hz
+
+→ Dải tần số hoạt động: ~4.5 Hz – 280 Hz (tỷ lệ ~62 lần)
+```
 
 **Công thức hiệu chuẩn**:
 ```
@@ -173,22 +182,43 @@ UBEC 5V ──┬──→ ESP32 VCC
 
 ⚠️ **Không cấp nguồn sensor từ 3.3V ESP32** — dưới ngưỡng tối thiểu 3.5V, sensor sẽ không hoạt động ổn định.
 
-**Firmware — đo tần số xung** (kiến trúc giống hệt code đếm RPM đã có, chỉ khác hằng số hiệu chuẩn):
+**Firmware — đo CHU KỲ giữa các xung (không đếm xung/cửa sổ cố định)**:
+
+⚠️ Với dải tần **4.5–280 Hz** (chênh lệch ~62 lần giữa min/max), kiểu đếm xung trong cửa sổ cố định (ví dụ 200ms như dùng cho RPM tần số cao) **không phù hợp** — ở lưu lượng thấp (4.5Hz), cửa sổ 200ms chỉ bắt được 0–1 xung, độ phân giải quá thô và nhiễu số đếm rất lớn (sai số ±100% giữa các lần đo).
+
+**Giải pháp đúng**: đo **thời gian giữa 2 xung liên tiếp** (period), rồi suy ra tần số tức thời `F = 1/period` — cách này cho độ phân giải tốt xuyên suốt cả dải tần thấp lẫn cao:
+
 ```cpp
-volatile unsigned long flowPulseCount = 0;
+volatile unsigned long lastPulseUs = 0;
+volatile unsigned long pulsePeriodUs = 0;   // thời gian giữa 2 xung gần nhất
+volatile bool newPulse = false;
 
 void IRAM_ATTR flowISR() {
-  flowPulseCount++;
+  unsigned long now = micros();
+  pulsePeriodUs = now - lastPulseUs;
+  lastPulseUs = now;
+  newPulse = true;
 }
 
-// Mỗi 200ms trong loop:
-unsigned long count = flowPulseCount;
-flowPulseCount = 0;
-float freqHz = count / 0.2;              // cửa sổ 0.2s
-float flowLpm = (freqHz + 5.0) / 190.0;  // Q = (F+5)/190
+// Trong loop:
+if (newPulse) {
+  noInterrupts();
+  unsigned long period = pulsePeriodUs;
+  newPulse = false;
+  interrupts();
+
+  float freqHz = 1000000.0 / period;         // F = 1/T
+  float flowLpm = (freqHz + 5.0) / 190.0;    // Q = (F+5)/190
+}
+
+// Timeout: nếu không có xung mới trong > 1s (tương ứng < ~0.02 L/phút)
+// → coi như lưu lượng = 0 (bơm đã dừng hoặc tắc dầu)
+if (micros() - lastPulseUs > 1000000UL) {
+  flowLpm = 0;
+}
 ```
 
-Nên tái dùng cơ chế chống nhiễu (NOISE reject/debounce) đã có trong `TEST_STARTER.ino` cho RPM, vì cảm biến lưu lượng cũng dễ bị nhiễu bởi chính PWM của bơm.
+Nên tái dùng cơ chế chống nhiễu (NOISE reject/debounce) đã có trong `TEST_STARTER.ino` cho RPM để loại bỏ xung giả do rung động cơ khí của turbine, nhưng lưu ý: do tần số ở đây thấp hơn nhiều so với RPM sensor, cần điều chỉnh ngưỡng debounce time cho phù hợp (period tối thiểu hợp lệ ≈ 1/280Hz ≈ 3.57ms — bất kỳ xung nào đến sớm hơn khoảng này nên bị loại bỏ như nhiễu).
 
 **Nâng cấp vòng điều khiển bơm (Closed-Loop)**:
 Với Q đo được thực tế, ECU có thể so sánh **Q_target(RPM)** (tra theo fuel-map ở Mục 3.1) với **Q_actual** rồi hiệu chỉnh PWM bơm bằng vòng điều khiển P/PI đơn giản — thay vì chỉ set PWM cố định theo RPM và giả định lưu lượng đúng như tính toán (open-loop). Đây là bước nâng cấp từ open-loop sang closed-loop thực sự cho hệ thống cấp dầu.
