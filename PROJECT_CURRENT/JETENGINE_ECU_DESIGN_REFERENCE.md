@@ -132,7 +132,68 @@ Vùng tua cao (30.000 – 152.000 RPM):
 ⚠️ Lưu ý: Nếu bơm quá nhiều khi tua còn thấp → động cơ bị nghẹn, lửa phụt
 ```
 
-### 3.2 Van Solenoid (Solenoid Valve)
+### 3.2 Cảm Biến Lưu Lượng Nhiên Liệu (Fuel Flow Sensor) — Closed-Loop Feedback
+
+**Phần cứng**:
+- Loại cảm biến: **ZJTM-04A-1.2** — turbine flow sensor dùng Hall effect (nguyên lý giống KMZ10A RPM: bánh turbine quay theo dòng chảy, nam châm trên turbine tạo xung mỗi vòng qua cảm biến Hall)
+- Điện áp hoạt động: **3.5–24VDC**
+- Ngõ ra: xung digital (tần số ∝ lưu lượng)
+- Vị trí lắp: **ngay sau bơm nhiên liệu, trước van solenoid dầu chính** — đo lưu lượng thực tế đã bơm ra, không phải suy đoán từ duty cycle PWM
+
+**Công thức hiệu chuẩn**:
+```
+F = 190 × Q − 5        (F: tần số Hz, Q: lưu lượng L/phút)
+
+Suy ra dùng cho firmware:
+Q = (F + 5) / 190
+
+Số hạng −5: ngưỡng chết (dead-zone offset) — turbine cần lưu lượng tối
+thiểu để thắng ma sát vòng bi trước khi bắt đầu quay, nên ở lưu lượng
+rất thấp tần số đo được lệch khỏi quan hệ tuyến tính lý thuyết.
+```
+
+**Sơ đồ điện** — tái sử dụng đúng pattern bảo vệ GPIO đã dùng cho RPM_OUT (R10 pull-up 10K + R2 series 1K + D1 TVS clamp 3.3V):
+
+```
+UBEC 5V ──┬──→ ESP32 VCC
+          └──→ ZJTM-04A-1.2 VCC (3.5-24V, dùng 5V phù hợp)
+                    │
+                   GND ──────────→ GND chung
+                    │
+                   OUT (xung) ──┬──→ R_pullup (10K) → VCC sensor
+                                │
+                                R2 (1K series)
+                                │
+                                ├──→ D1 (TVS 3.3V clamp) → GND
+                                │
+                                ↓
+                           GPIO_FLOW (ESP32, chọn chân input-only
+                           rảnh: GPIO34/35/36/39)
+```
+
+⚠️ **Không cấp nguồn sensor từ 3.3V ESP32** — dưới ngưỡng tối thiểu 3.5V, sensor sẽ không hoạt động ổn định.
+
+**Firmware — đo tần số xung** (kiến trúc giống hệt code đếm RPM đã có, chỉ khác hằng số hiệu chuẩn):
+```cpp
+volatile unsigned long flowPulseCount = 0;
+
+void IRAM_ATTR flowISR() {
+  flowPulseCount++;
+}
+
+// Mỗi 200ms trong loop:
+unsigned long count = flowPulseCount;
+flowPulseCount = 0;
+float freqHz = count / 0.2;              // cửa sổ 0.2s
+float flowLpm = (freqHz + 5.0) / 190.0;  // Q = (F+5)/190
+```
+
+Nên tái dùng cơ chế chống nhiễu (NOISE reject/debounce) đã có trong `TEST_STARTER.ino` cho RPM, vì cảm biến lưu lượng cũng dễ bị nhiễu bởi chính PWM của bơm.
+
+**Nâng cấp vòng điều khiển bơm (Closed-Loop)**:
+Với Q đo được thực tế, ECU có thể so sánh **Q_target(RPM)** (tra theo fuel-map ở Mục 3.1) với **Q_actual** rồi hiệu chỉnh PWM bơm bằng vòng điều khiển P/PI đơn giản — thay vì chỉ set PWM cố định theo RPM và giả định lưu lượng đúng như tính toán (open-loop). Đây là bước nâng cấp từ open-loop sang closed-loop thực sự cho hệ thống cấp dầu.
+
+### 3.3 Van Solenoid (Solenoid Valve)
 
 **Cần ít nhất 2 van**:
 
