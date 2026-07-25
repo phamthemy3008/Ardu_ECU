@@ -161,24 +161,34 @@ thiểu để thắng ma sát vòng bi trước khi bắt đầu quay, nên ở 
 rất thấp tần số đo được lệch khỏi quan hệ tuyến tính lý thuyết.
 ```
 
+**GPIO được chọn: `PIN_FLOW = GPIO34`** — input-only, không có pull-up/pull-down nội (khớp thiết kế pull-up ngoài), không xung đột với các chân đang dùng trong firmware chính (18, 5, 19, 33, 26, 25, 17, 16, 32, 22, 2, 13, 14, 23, 27).
+
 **Sơ đồ điện** — tái sử dụng đúng pattern bảo vệ GPIO đã dùng cho RPM_OUT (R10 pull-up 10K + R2 series 1K + D1 TVS clamp 3.3V):
 
 ```
-UBEC 5V ──┬──→ ESP32 VCC
-          └──→ ZJTM-04A-1.2 VCC (3.5-24V, dùng 5V phù hợp)
-                    │
-                   GND ──────────→ GND chung
-                    │
-                   OUT (xung) ──┬──→ R_pullup (10K) → VCC sensor
-                                │
-                                R2 (1K series)
-                                │
-                                ├──→ D1 (TVS 3.3V clamp) → GND
-                                │
-                                ↓
-                           GPIO_FLOW (ESP32, chọn chân input-only
-                           rảnh: GPIO34/35/36/39)
+                    UBEC 5V
+                       │
+        ┌──────────────┼──────────────┐
+        │              │              │
+   ESP32 VCC     ZJTM-04A-1.2 VCC   R_pullup (10K)
+                       │              │
+                      GND            (nối vào đây)
+                       │              │
+                    OUT (NPN) ────────┘
+                       │
+                       ├──→ R_series (1K)
+                       │         │
+                       │         ├──→ D_TVS (3.3V) ──→ GND
+                       │         │
+                       │         ↓
+                       │    GPIO34 (ESP32, input-only)
+                       │
+                      GND ──────────→ GND chung toàn mạch
 ```
+
+**Vì sao cần đủ 3 linh kiện** (giống lý do áp dụng cho RPM_OUT → GPIO33):
+- **R_pullup (10K)**: Ngõ ra NPN open-collector chỉ kéo được xuống GND (mức LOW) khi transistor dẫn; khi không dẫn, chân OUT thả nổi — bắt buộc điện trở kéo lên nguồn để có mức HIGH rõ ràng
+- **R_series (1K) + D_TVS (3.3V)**: Sensor cấp nguồn 5V → mức HIGH trên OUT cũng ~5V, vượt quá 3.3V GPIO chịu được. R_series giới hạn dòng, D_TVS kẹp áp về 3.3V
 
 ⚠️ **Không cấp nguồn sensor từ 3.3V ESP32** — dưới ngưỡng tối thiểu 3.5V, sensor sẽ không hoạt động ổn định.
 
@@ -189,6 +199,8 @@ UBEC 5V ──┬──→ ESP32 VCC
 **Giải pháp đúng**: đo **thời gian giữa 2 xung liên tiếp** (period), rồi suy ra tần số tức thời `F = 1/period` — cách này cho độ phân giải tốt xuyên suốt cả dải tần thấp lẫn cao:
 
 ```cpp
+#define PIN_FLOW 34   // input-only, external pull-up 10K (không dùng INPUT_PULLUP nội)
+
 volatile unsigned long lastPulseUs = 0;
 volatile unsigned long pulsePeriodUs = 0;   // thời gian giữa 2 xung gần nhất
 volatile bool newPulse = false;
