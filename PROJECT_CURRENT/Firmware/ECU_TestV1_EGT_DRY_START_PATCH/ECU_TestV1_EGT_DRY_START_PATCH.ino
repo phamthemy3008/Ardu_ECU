@@ -392,6 +392,16 @@ int pumpUs = ESC_SAFE_US, startUs = ESC_SAFE_US;
 int fuelTargetUs = ESC_SAFE_US;   // Ardu_ECU-style target; pumpUs is the actual output now
 int fuelTargetRpm = 0;            // current RPM target used by hybrid fuel controller
 bool ignCmd = false, valve1Cmd = false, valve2Cmd = false;
+
+// ESC throttle-range calibration ("esccal"): drives PUMP+STARTER ESCs to
+// ESC_MAX_US so both learn the endpoint while the operator (re)powers them,
+// then auto-drops to ESC_MIN_US after a hold window - mirrors the standard
+// BLHeli manual throttle-calibration procedure, done from the ECU itself so
+// no separate bench rig/receiver is needed. Non-blocking (millis()-driven)
+// like the other manual-test auto-off timers below, not delay()-based.
+bool escCalActive = false;
+uint32_t escCalPhaseUntilMs = 0;
+static const uint32_t ESC_CAL_MAX_HOLD_MS = 5000; // time held at MAX before auto-drop to MIN
 bool dryStartActive = false;  // true only when EGT is OPEN and startidle is converted to dry starter/RPM test
 
 struct EgtState {
@@ -2592,6 +2602,7 @@ void printHelp() {
   Serial.println("pumptest us [ms]      -> bench pump verify only, auto-off after ms (default 1500ms, no cap)");
   Serial.println("startmanual us | startmanual off  -> hold starter PWM (no auto-off, manual page)");
   Serial.println("pumpmanual us | pumpmanual off    -> hold pump PWM + open valve1 (no auto-off, manual page)");
+  Serial.println("esccal start | esccal cancel      -> ESC throttle-range calibration: PUMP+STARTER to 2000us, auto-drop to 1000us after 5s");
   Serial.println("ign on | ign off                  -> hold glow (no auto-off, manual page)");
   Serial.println("manauto on | manauto off -> manual page AUTO START: requires RPM>=ignArmRpm, then mirrors ST_INTRO_FUEL/LIGHTOFF (valve1+pump+glow -> confirm real light-off -> valve2 -> close valve1 -> prove flame -> glow off)");
   Serial.println("valve1 on/off (Start solenoid, bench-only) | valve2 on/off (Main oil valve, bench-only)");
@@ -2840,6 +2851,30 @@ void handleCommand(String cmd) {
     return;
   }
 
+  // ESC throttle-range calibration: drives both PUMP and STARTER ESCs to
+  // ESC_MAX_US so the operator can (re)power them and have them learn the
+  // endpoint, then this ECU auto-drops to ESC_MIN_US after ESC_CAL_MAX_HOLD_MS
+  // - no separate receiver/bench rig needed. Valves stay closed (no
+  // fuelValvesAuto call) since this only calibrates PWM range, not fuel flow.
+  if (cmd == "esccal start") {
+    if (ecuMode != MODE_WAITING && ecuMode != MODE_ABORTED) { Serial.println("ERROR: esccal only while WAITING/ABORTED."); return; }
+    escCalActive = true;
+    manualStartOffAtMs = 0; manualPumpOffAtMs = 0;
+    startUs = ESC_MAX_US; pumpUs = ESC_MAX_US;
+    applyOutputs();
+    escCalPhaseUntilMs = millis() + ESC_CAL_MAX_HOLD_MS;
+    addLog("ESC CAL: MAX 2000us (PUMP+STARTER)");
+    Serial.print("ESC CAL: phat MAX 2000us tren PUMP+STARTER. Cap/mo nguon ESC ngay (nghe tit tit). Tu dong ha ve MIN sau ");
+    Serial.print(ESC_CAL_MAX_HOLD_MS / 1000); Serial.println("s.");
+    return;
+  }
+  if (cmd == "esccal cancel" || cmd == "esccal off") {
+    escCalActive = false; escCalPhaseUntilMs = 0;
+    startUs = ESC_SAFE_US; pumpUs = ESC_SAFE_US; applyOutputs();
+    Serial.println("ESC CAL: da huy, ve an toan (1000us).");
+    return;
+  }
+
   if (cmd == "ign on") {
     if (ecuMode != MODE_WAITING && ecuMode != MODE_ABORTED) { Serial.println("ERROR: ign only while WAITING/ABORTED."); return; }
     if (fuelCommandBlockedByHotEgt()) {
@@ -3047,6 +3082,12 @@ void loop() {
   if (manualIgnOffAtMs > 0 && millis() >= manualIgnOffAtMs) { ignCmd = false; manualIgnOffAtMs = 0; applyOutputs(); Serial.println("GLOW AUTO OFF."); }
   if (manualStartOffAtMs > 0 && millis() >= manualStartOffAtMs) { startUs = ESC_SAFE_US; manualStartOffAtMs = 0; applyOutputs(); Serial.println("STARTER AUTO OFF."); }
   if (manualPumpOffAtMs > 0 && millis() >= manualPumpOffAtMs) { pumpUs = ESC_SAFE_US; fuelTargetUs = ESC_SAFE_US; fuelValvesAuto(false); manualPumpOffAtMs = 0; applyOutputs(); Serial.println("PUMP AUTO OFF."); }
+  if (escCalActive && escCalPhaseUntilMs > 0 && millis() >= escCalPhaseUntilMs) {
+    startUs = ESC_MIN_US; pumpUs = ESC_MIN_US; applyOutputs();
+    escCalPhaseUntilMs = 0; escCalActive = false;
+    addLog("ESC CAL: MIN 1000us (done)");
+    Serial.println("ESC CAL: da ha ve MIN 1000us. Cho nghe nhac chao ngan tu ESC de xac nhan hoan tat.");
+  }
   updateActiveTest();
   isStage2Armed();
   updateRpm(); updateEgt();

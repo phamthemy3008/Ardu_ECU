@@ -232,6 +232,11 @@ Sau khi đã nạp cấu hình chống reset (Mục 2.4), cần thêm bước n�
 
 Từ lúc này, hành trình ga của ESC đã được đồng bộ chuẩn xác với mạch ECU tự chế.
 
+**✅ Đã tích hợp sẵn vào firmware chính** (`ECU_TestV1_EGT_DRY_START_PATCH.ino`) — không cần nạp riêng 1 sketch bench cho bước này nữa:
+- Lệnh Serial/API: `esccal start` (phát MAX 2000µs trên PUMP+STARTER, tự động hạ về MIN 1000µs sau 5 giây — non-blocking, không dùng `delay()` để không treo vòng lặp ECU) và `esccal cancel` (hủy giữa chừng, về an toàn ngay)
+- Nút bấm trên **Web UI, tab Settings**: "⚠️ Bắt Đầu Cân Chỉnh ESC" (có hộp thoại xác nhận nhắc tháo bánh răng/củ đề trước) và "Hủy / Về An Toàn"
+- Chỉ hoạt động khi ECU đang ở mode **WAITING/ABORTED** (giống các lệnh test tay khác), van nhiên liệu không mở trong lúc chạy lệnh này (chỉ hiệu chỉnh dải PWM, không phun dầu thật)
+
 ---
 
 ## 3. Lập Trình Phần Mềm (Firmware Code)
