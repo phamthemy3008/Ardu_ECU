@@ -62,40 +62,113 @@ Pin 3S (-) ──────┴──→ ESC IN (-)
 - Để dây dẫn càng ngắn càng tốt (< 5cm)
 - Không được hàn capacitor ngược cực → nổ
 
-### 1.3 Mạch Gộp Dây CH340 (Để Flash ESC) — **CẦN CHUẨN BỊ**
+### 1.3 Mạch Lọc Nhiễu Nguồn DC (Power Noise Filter) — **KHUYẾN CÁO**
 
-Bạn đã có mạch CH340 với jumper 3.3V từ ảnh trước → **dùng tốt**.
+**Mục đích**: Lọc sạch và làm phẳng điện áp từ pin LiPo trước khi cấp cho UBEC, giảm ripple/noise do motor đề gây ra. Điều này bảo vệ vi điều khiển khỏi nhiễu PWM của motor.
 
-Để flash firmware BLHeli_S vào ESC:
-- ESC BLHeli_S có cổng UART hoặc bootloader hỗ trợ firmware update
-- Nối 3 dây: **GND + TXD + RXD** từ CH340 tới chân UART của ESC
-- Dùng phần mềm **BLHeliSuite** (Windows hoặc Linux via Wine) để nạp file `.hex` mới
+**Thông số mạch**:
+- **Loại**: Mạch lọc LC (LC Power Filter)
+- **Điện áp hoạt động**: 0–50V DC
+- **Dòng tối đa**: 4A
+- **Công dụng**: Lọc sạch, làm phẳng điện áp, giảm ù rè, sôi nền
+
+**Sơ đồ nối**:
+```
+Pin 3S LiPo (0-50V)
+    ↓
+[Mạch Lọc LC 0-50V 4A]  ← Làm sạch nguồn, giảm ripple
+    ↓
+UBEC 5V (ổn áp thành 5V)
+    ↓
+ESP32 VCC (nhận 5V sạch)
+```
+
+**Lợi ích**:
+- Giảm nhiễu PWM từ motor đề ảnh hưởng đến ESP32
+- Làm phẳng điện áp, tránh sụt áp đột ngột
+- Bảo vệ UBEC và vi điều khiển khỏi spike điện áp
+
+**Lưu ý**:
+- Đặt mạch này **càng gần pin LiPo càng tốt** (dây vào ngắn)
+- Màu sắc tụ điện có thể thay đổi theo đợt hàng → công năng không đổi
+- Đảm bảo dòng chạy qua mạch không vượt 4A (không vấn đề cho ESP32 + UBEC, chỉ cần lưu ý khi có thêm thiết bị khác)
+
+### 1.4 Mạch Gộp Dây CH340 (Để Cấu Hình ESC) — **CẦN CHUẨN BỊ**
+
+⚠️ **Sửa lại so với hiểu ban đầu**: Chip trên ESC BLHeli_S giao tiếp qua **MỘT dây tín hiệu duy nhất** (1-wire, half-duplex) — **không phải 3 dây GND+TXD+RXD tách biệt**. Vì mạch CH340 là full-duplex (TX và RX riêng), cần **gộp chung TX và RX lại bằng 1 điện trở** để tạo giao tiếp 1 dây tương thích.
+
+**Linh kiện cần**: 1 điện trở **1kΩ – 10kΩ**
+
+**Sơ đồ đấu nối**:
+```
+       MẠCH USB TTL CH340
+     +-------------------+
+     |                   |
+     |               TX  |------+
+     |                   |      |
+     |                   |    [ĐIỆN TRỞ] (1k – 10k Ohm)
+     |                   |      |
+     |               RX  |------+======> CẮM VÀO dây TÍN HIỆU (Trắng/Vàng)
+     |                   |               của rắc cắm nhỏ trên ESC
+     |                   |
+     |              GND  |==============> CẮM VÀO dây MÁT (Đen/Nâu)
+     +-------------------+               của rắc cắm nhỏ trên ESC
+
+
+       PIN LIPO 3S                      ESC BLHeli_S 30A
+     +--------------+                  +------------------+
+     |   Cực Dương  |(+)==============>(+) Dây Nguồn Đỏ    |
+     |   Cực Âm     |(-)==============>(-) Dây Nguồn Đen   |
+     +--------------+                  +------------------+
+```
+
+**⚠️ 3 Lưu Ý Sống Còn Khi Đấu Nối**:
+
+1. **Vị trí lấy dây tín hiệu**: Dây Trắng (hoặc Vàng) và dây Đen (hoặc Nâu) là 2 sợi nhỏ nằm trên **rắc cắm 3 chân** (rắc cắm vào mạch nhận/mạch test servo) — **không phải dây động lực to nối vào motor**.
+2. **Dây đỏ nhỏ trên rắc 3 chân (dây BEC 5V)**: **Để trống, tuyệt đối không cắm vào mạch CH340** — tránh xung đột điện áp làm cháy cổng USB máy tính.
+3. **Trình tự cấp nguồn** (bắt buộc đúng thứ tự): Cắm mạch CH340 vào máy tính trước → Mở BLHeliSuite → Bấm Connect → **Sau cùng mới cắm Pin 3S vào ESC** để cấp nguồn cao áp cho chip chạy, rồi mới bấm Read Setup.
+
+Dùng phần mềm **BLHeliSuite** (bản dành cho chip Silabs/Atmel, **không dùng bản BLHeliSuite32**) để đọc/ghi cấu hình ESC.
 
 ---
 
 ## 2. Cài Đặt ESC BLHeli_S (Configuration)
 
-### 2.1 Quy Trình Nạp Firmware ESC
+### 2.1 Chuẩn Bị Mạch Nạp Gộp Chân (1-Wire)
 
-**Bước 1**: Chuẩn bị
-- Tải phần mềm **BLHeliSuite** từ https://github.com/bitdump/BLHeli (hoặc phiên bản cũ hơn từ trang cũ của BLHeli)
-- Chuẩn bị mạch CH340 + 3 dây (GND, TXD, RXD)
-- Cắm ESC vào mạch (hoặc chỉ nối dây bootload, không cần cấp điện ESC)
+Xem **Mục 1.4** để đấu dây (điện trở gộp TX-RX của CH340, nối vào dây tín hiệu + GND của ESC).
 
-**Bước 2**: Kết nối ESC qua CH340
-- Mở BLHeliSuite
-- Chọn **Programmer** → chọn cổng COM của CH340
-- Click **Read** để đọc firmware hiện tại từ ESC
-- Nếu kết nối thành công → sẽ thấy tên ESC, phiên bản firmware, loại motor
+⚠️ **CỰC KỲ QUAN TRỌNG**: **Tháo hoàn toàn bánh răng/củ đề ra khỏi motor** để motor chạy trơn (không tải), đảm bảo an toàn nếu motor quay đột ngột. **Chưa cắm pin vào ESC** ở bước này.
 
-**Bước 3**: Sửa đổi 3 thông số quan trọng
-(Xem **Mục 2.2** dưới đây)
+### 2.2 Thao Tác Trên Phần Mềm BLHeliSuite
 
-**Bước 4**: Click **Write** để nạp lại cấu hình
-- Phần mềm sẽ báo "Write Complete" khi xong
-- ESC sẽ reset, phát ra tiếng nhạc chào
+**Bước 1**: Cắm mạch CH340 vào máy tính qua cổng USB.
 
-### 2.2 Ba Thông Số Cần Chỉnh Sửa Trong BLHeliSuite
+**Bước 2**: Tải và mở phần mềm **BLHeliSuite** (dùng bản dành cho chip **Silabs/Atmel**, không dùng bản BLHeliSuite32) — https://github.com/bitdump/BLHeli
+
+**Bước 3**: Trên thanh menu, bấm **Select ATMEL / SILABS Interface**.
+
+**Bước 4**: Chọn dòng **SILABS BLHeli Bootloader (USB/Com)** (thường ở vị trí số 4 hoặc 6).
+
+**Bước 5**: Ở góc dưới bên trái, tại ô **Port**, chọn đúng cổng COM của mạch CH340. Phần **Baud** để mặc định (19200 hoặc 9600).
+
+**Bước 6**: Bấm nút **Connect** ở góc dưới bên trái — nút sẽ chuyển sang trạng thái chờ cấp nguồn.
+
+### 2.3 Cấp Nguồn Và Đọc Thông Số (Read Setup)
+
+**Bước 1**: Cắm nguồn Pin 3S vào ESC (**chỉ sau khi đã bấm Connect ở Bước 2.2.6**). Motor sẽ phát tiếng tít tít báo hiệu đã có nguồn nuôi chip.
+
+**Bước 2**: Bấm nút **Read Setup** (cạnh nút Connect).
+
+**Bước 3**: Nếu đấu dây đúng, phần mềm hiển thị thông báo đã nhận diện ESC (vd: "Found ESC #1..."). Bấm **OK**.
+
+**Bước 4**: Sửa 3 thông số quan trọng — xem **Mục 2.4** dưới đây.
+
+**Bước 5**: Bấm **Write Setup** ở góc dưới để lưu cấu hình mới vào chip ESC.
+
+**Bước 6**: Bấm **Disconnect** và **rút pin ra**.
+
+### 2.4 Ba Thông Số Cần Chỉnh Sửa Trong BLHeliSuite
 
 Sau khi đọc firmware ESC lên, bạn sẽ thấy cửa sổ **Settings** chứa hàng chục tham số. Chỉ cần sửa **3 thông số sau**:
 
@@ -133,7 +206,7 @@ Sau khi đọc firmware ESC lên, bạn sẽ thấy cửa sổ **Settings** ch�
 
 **Đề xuất**: **Disabled** (Tắt) để motor đề có full power.
 
-### 2.3 Các Thông Số Khác (Giữ Mặc Định)
+### 2.5 Các Thông Số Khác (Giữ Mặc Định)
 
 | Thông số | Giữ nguyên | Ghi chú |
 |---------|-----|----|
@@ -142,6 +215,27 @@ Sau khi đọc firmware ESC lên, bạn sẽ thấy cửa sổ **Settings** ch�
 | Motor Poles | (Tùy motor đề) | Không thay đổi |
 | Battery Type | LiPo (3S) | OK |
 | Braking | Enabled hoặc Disabled | Tùy chọn |
+
+### 2.6 Cân Chỉnh Hành Trình Ga (Calibrate ESC) Bằng Tay
+
+Sau khi đã nạp cấu hình chống reset (Mục 2.4), cần thêm bước này để ESC hiểu chính xác mức xung **thấp nhất (1000µs)** và **cao nhất (2000µs)** phát ra từ mạch Arduino/ESP32 — nếu bỏ qua bước này, ESC có thể hiểu sai dải hành trình ga và phản ứng không tuyến tính hoặc không đúng dải PWM mà firmware ECU đang phát.
+
+**Bước 1**: Rút nguồn pin ra khỏi ESC.
+
+**Bước 2**: Trên mạch Arduino/ESP32, nạp đoạn code phát xung ở mức **tối đa kịch ga (2000µs) liên tục**.
+
+**Bước 3**: Cắm nguồn Pin 3S vào ESC → motor phát vài tiếng tít tít báo hiệu đã nhận mức ga cao nhất.
+
+**Bước 4**: **Ngay lập tức (trong vòng 1–2 giây)**, chỉnh code hoặc gạt cần để hạ xung về mức **tối thiểu (1000µs)**.
+
+**Bước 5**: Motor kêu một đoạn nhạc chào ngắn báo hiệu đã lưu xong hành trình ga mới.
+
+Từ lúc này, hành trình ga của ESC đã được đồng bộ chuẩn xác với mạch ECU tự chế.
+
+**✅ Đã tích hợp sẵn vào firmware chính** (`ECU_TestV1_EGT_DRY_START_PATCH.ino`) — không cần nạp riêng 1 sketch bench cho bước này nữa:
+- Lệnh Serial/API: `esccal start` (phát MAX 2000µs trên PUMP+STARTER, tự động hạ về MIN 1000µs sau 5 giây — non-blocking, không dùng `delay()` để không treo vòng lặp ECU) và `esccal cancel` (hủy giữa chừng, về an toàn ngay)
+- Nút bấm trên **Web UI, tab Settings**: "⚠️ Bắt Đầu Cân Chỉnh ESC" (có hộp thoại xác nhận nhắc tháo bánh răng/củ đề trước) và "Hủy / Về An Toàn"
+- Chỉ hoạt động khi ECU đang ở mode **WAITING/ABORTED** (giống các lệnh test tay khác), van nhiên liệu không mở trong lúc chạy lệnh này (chỉ hiệu chỉnh dải PWM, không phun dầu thật)
 
 ---
 
@@ -325,19 +419,24 @@ void writePWM(int microSeconds) {
 ### ✅ Giai Đoạn 1: Chuẩn Bị Phần Cứng
 - [ ] Chuẩn bị 2 pin LiPo riêng (1 cho ESC motor, 1 cho BEC vi điều khiển)
 - [ ] Hàn capacitor 1000µF/25V song song vào 2 cực vào ESC
+- [ ] **Nối Mạch Lọc Nhiễu DC 0-50V 4A**: Pin → Mạch lọc → UBEC 5V → ESP32
 - [ ] Nối dây GND chung giữa pin motor + pin BEC + vi điều khiển (điểm tham chiếu duy nhất)
 - [ ] Chuẩn bị mạch CH340 với jumper 3.3V
 
-### ✅ Giai Đoạn 2: Flash & Cấu Hình ESC
-- [ ] Tải phần mềm BLHeliSuite
-- [ ] Kết nối ESC với máy tính qua mạch CH340 (3 dây: GND, TXD, RXD)
-- [ ] Đọc firmware hiện tại từ ESC (Read)
+### ✅ Giai Đoạn 2: Cấu Hình ESC
+- [ ] Tháo bánh răng/củ đề khỏi motor (an toàn khi test)
+- [ ] Hàn điện trở 1k–10k gộp chân TX-RX trên mạch CH340
+- [ ] Đấu dây tín hiệu (Trắng/Vàng) + GND (Đen/Nâu) từ rắc 3 chân ESC vào CH340 — **không đấu dây BEC 5V (đỏ)**
+- [ ] Tải phần mềm BLHeliSuite (bản Silabs/Atmel, không dùng BLHeliSuite32)
+- [ ] Cắm CH340 vào máy tính → chọn Select ATMEL/SILABS Interface → SILABS BLHeli Bootloader (USB/Com) → chọn cổng COM → bấm **Connect**
+- [ ] **Sau đó mới** cắm Pin 3S vào ESC (đúng thứ tự: Connect trước, cấp nguồn sau)
+- [ ] Bấm **Read Setup** → xác nhận nhận diện ESC thành công
 - [ ] **Sửa 3 thông số**:
   - [ ] Startup Power: **0.125 – 0.25**
   - [ ] Motor Timing: **High**
   - [ ] Low RPM Power Protect: **Disabled (Tắt)**
-- [ ] Nạp cấu hình mới vào ESC (Write)
-- [ ] Nghe tiếng nhạc chào → thành công
+- [ ] Bấm **Write Setup** → nghe tiếng nhạc chào → Disconnect → rút pin
+- [ ] **Cân chỉnh hành trình ga** (Mục 2.6): phát 2000µs liên tục khi cấp nguồn, hạ về 1000µs trong 1–2 giây, nghe nhạc chào xác nhận lưu thành công
 
 ### ✅ Giai Đoạn 3: Viết & Test Code
 - [ ] Chọn code Arduino hoặc LEDC (tùy vi điều khiển)

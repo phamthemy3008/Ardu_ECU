@@ -132,7 +132,110 @@ Vùng tua cao (30.000 – 152.000 RPM):
 ⚠️ Lưu ý: Nếu bơm quá nhiều khi tua còn thấp → động cơ bị nghẹn, lửa phụt
 ```
 
-### 3.2 Van Solenoid (Solenoid Valve)
+### 3.2 Cảm Biến Lưu Lượng Nhiên Liệu (Fuel Flow Sensor) — Closed-Loop Feedback
+
+**Phần cứng**:
+- Loại cảm biến: **ZJTM-04A-1.2** — turbine flow sensor dùng Hall effect (nguyên lý giống KMZ10A RPM: bánh turbine quay theo dòng chảy, nam châm trên turbine tạo xung mỗi vòng qua cảm biến Hall)
+- Điện áp hoạt động: **3.5–24VDC**
+- Ngõ ra: **NPN Pulse** (open-collector — bắt buộc phải có điện trở pull-up ngoài, xem sơ đồ dưới)
+- Lưu lượng đo được: **0.05–1.5 L/phút**
+- Vị trí lắp: **ngay sau bơm nhiên liệu, trước van solenoid dầu chính** — đo lưu lượng thực tế đã bơm ra, không phải suy đoán từ duty cycle PWM
+
+**Dải tần số xung thực tế** (tính theo công thức hiệu chuẩn, xem bên dưới):
+```
+Tại Q_min = 0.05 L/phút  →  F = 190×0.05 − 5 = 4.5 Hz
+Tại Q_max = 1.5  L/phút  →  F = 190×1.5  − 5 = 280 Hz
+
+→ Dải tần số hoạt động: ~4.5 Hz – 280 Hz (tỷ lệ ~62 lần)
+```
+
+**Công thức hiệu chuẩn**:
+```
+F = 190 × Q − 5        (F: tần số Hz, Q: lưu lượng L/phút)
+
+Suy ra dùng cho firmware:
+Q = (F + 5) / 190
+
+Số hạng −5: ngưỡng chết (dead-zone offset) — turbine cần lưu lượng tối
+thiểu để thắng ma sát vòng bi trước khi bắt đầu quay, nên ở lưu lượng
+rất thấp tần số đo được lệch khỏi quan hệ tuyến tính lý thuyết.
+```
+
+**GPIO được chọn: `PIN_FLOW = GPIO34`** — input-only, không có pull-up/pull-down nội (khớp thiết kế pull-up ngoài), không xung đột với các chân đang dùng trong firmware chính (18, 5, 19, 33, 26, 25, 17, 16, 32, 22, 2, 13, 14, 23, 27).
+
+**Sơ đồ điện** — tái sử dụng đúng pattern bảo vệ GPIO đã dùng cho RPM_OUT (R10 pull-up 10K + R2 series 1K + D1 TVS clamp 3.3V):
+
+```
+                    UBEC 5V
+                       │
+        ┌──────────────┼──────────────┐
+        │              │              │
+   ESP32 VCC     ZJTM-04A-1.2 VCC   R_pullup (10K)
+                       │              │
+                      GND            (nối vào đây)
+                       │              │
+                    OUT (NPN) ────────┘
+                       │
+                       ├──→ R_series (1K)
+                       │         │
+                       │         ├──→ D_TVS (3.3V) ──→ GND
+                       │         │
+                       │         ↓
+                       │    GPIO34 (ESP32, input-only)
+                       │
+                      GND ──────────→ GND chung toàn mạch
+```
+
+**Vì sao cần đủ 3 linh kiện** (giống lý do áp dụng cho RPM_OUT → GPIO33):
+- **R_pullup (10K)**: Ngõ ra NPN open-collector chỉ kéo được xuống GND (mức LOW) khi transistor dẫn; khi không dẫn, chân OUT thả nổi — bắt buộc điện trở kéo lên nguồn để có mức HIGH rõ ràng
+- **R_series (1K) + D_TVS (3.3V)**: Sensor cấp nguồn 5V → mức HIGH trên OUT cũng ~5V, vượt quá 3.3V GPIO chịu được. R_series giới hạn dòng, D_TVS kẹp áp về 3.3V
+
+⚠️ **Không cấp nguồn sensor từ 3.3V ESP32** — dưới ngưỡng tối thiểu 3.5V, sensor sẽ không hoạt động ổn định.
+
+**Firmware — đo CHU KỲ giữa các xung (không đếm xung/cửa sổ cố định)**:
+
+⚠️ Với dải tần **4.5–280 Hz** (chênh lệch ~62 lần giữa min/max), kiểu đếm xung trong cửa sổ cố định (ví dụ 200ms như dùng cho RPM tần số cao) **không phù hợp** — ở lưu lượng thấp (4.5Hz), cửa sổ 200ms chỉ bắt được 0–1 xung, độ phân giải quá thô và nhiễu số đếm rất lớn (sai số ±100% giữa các lần đo).
+
+**Giải pháp đúng**: đo **thời gian giữa 2 xung liên tiếp** (period), rồi suy ra tần số tức thời `F = 1/period` — cách này cho độ phân giải tốt xuyên suốt cả dải tần thấp lẫn cao:
+
+```cpp
+#define PIN_FLOW 34   // input-only, external pull-up 10K (không dùng INPUT_PULLUP nội)
+
+volatile unsigned long lastPulseUs = 0;
+volatile unsigned long pulsePeriodUs = 0;   // thời gian giữa 2 xung gần nhất
+volatile bool newPulse = false;
+
+void IRAM_ATTR flowISR() {
+  unsigned long now = micros();
+  pulsePeriodUs = now - lastPulseUs;
+  lastPulseUs = now;
+  newPulse = true;
+}
+
+// Trong loop:
+if (newPulse) {
+  noInterrupts();
+  unsigned long period = pulsePeriodUs;
+  newPulse = false;
+  interrupts();
+
+  float freqHz = 1000000.0 / period;         // F = 1/T
+  float flowLpm = (freqHz + 5.0) / 190.0;    // Q = (F+5)/190
+}
+
+// Timeout: nếu không có xung mới trong > 1s (tương ứng < ~0.02 L/phút)
+// → coi như lưu lượng = 0 (bơm đã dừng hoặc tắc dầu)
+if (micros() - lastPulseUs > 1000000UL) {
+  flowLpm = 0;
+}
+```
+
+Nên tái dùng cơ chế chống nhiễu (NOISE reject/debounce) đã có trong `TEST_STARTER.ino` cho RPM để loại bỏ xung giả do rung động cơ khí của turbine, nhưng lưu ý: do tần số ở đây thấp hơn nhiều so với RPM sensor, cần điều chỉnh ngưỡng debounce time cho phù hợp (period tối thiểu hợp lệ ≈ 1/280Hz ≈ 3.57ms — bất kỳ xung nào đến sớm hơn khoảng này nên bị loại bỏ như nhiễu).
+
+**Nâng cấp vòng điều khiển bơm (Closed-Loop)**:
+Với Q đo được thực tế, ECU có thể so sánh **Q_target(RPM)** (tra theo fuel-map ở Mục 3.1) với **Q_actual** rồi hiệu chỉnh PWM bơm bằng vòng điều khiển P/PI đơn giản — thay vì chỉ set PWM cố định theo RPM và giả định lưu lượng đúng như tính toán (open-loop). Đây là bước nâng cấp từ open-loop sang closed-loop thực sự cho hệ thống cấp dầu.
+
+### 3.3 Van Solenoid (Solenoid Valve)
 
 **Cần ít nhất 2 van**:
 

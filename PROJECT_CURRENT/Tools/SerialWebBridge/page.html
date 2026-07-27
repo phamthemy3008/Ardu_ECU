@@ -136,6 +136,16 @@ summary{cursor:pointer;padding:8px 0;color:#cfe0ff}h2{font-size:17px;margin:14px
 <button class="btn go" onclick="if(confirm('Lưu toàn bộ config hiện tại vào thẻ SD? Lần sau bật máy sẽ tự nạp lại.'))cmd('savecfg')">💾 Lưu config vào SD</button>
 <button class="btn" onclick="if(confirm('Nạp lại config từ SD, ghi đè giá trị đang chỉnh?'))cmd('loadcfg')">↻ Nạp lại từ SD</button>
 </div>
+<h2>⚠️ Cân Chỉnh Hành Trình Ga ESC (Throttle Range)</h2>
+<div class="row small">
+<span title="Đồng bộ mức xung MAX (2000µs)/MIN (1000µs) mà ESC hiểu, khớp với dải PWM mạch ECU đang phát. Chỉ cần làm 1 lần sau khi nạp lại cấu hình ESC (BLHeliSuite) hoặc thay ESC mới.">
+THÁO BÁNH RĂNG/CỦ ĐỀ khỏi motor trước khi làm bước này. ECU sẽ phát 2000µs (MAX) trên cả PUMP+STARTER — cấp/mở nguồn ESC ngay khi thấy dòng chữ trên Terminal, ESC kêu tít tít xác nhận. Sau 5 giây ECU tự động hạ về 1000µs (MIN), ESC kêu nhạc chào ngắn xác nhận lưu xong.
+</span>
+</div>
+<div class="btns">
+<button class="btn danger" title="Phát MAX 2000us trên PUMP+STARTER, tự hạ về MIN 1000us sau 5s. CHỈ dùng khi đã tháo bánh răng/củ đề, chỉ hoạt động khi đang CHỜ/HỦY." onclick="if(confirm('CẢNH BÁO: sẽ phát xung PWM TỐI ĐA (2000µs) ra cả PUMP và STARTER ESC.\n\nĐã tháo bánh răng/củ đề khỏi motor chưa?\n\nBấm OK để bắt đầu cân chỉnh hành trình ga.'))cmd('esccal start')">⚠️ Bắt Đầu Cân Chỉnh ESC</button>
+<button class="btn" title="Hủy cân chỉnh giữa chừng, đưa PUMP+STARTER về mức an toàn 1000us ngay." onclick="cmd('esccal cancel')">Hủy / Về An Toàn</button>
+</div>
 <h2>Tinh chỉnh — RPM &amp; An toàn <span class="small">(tự nạp từ config; PWM/giới hạn chỉ chỉnh được khi đang CHỜ/HỦY)</span></h2><div class="row small">
 <span title="Tốc độ vòng tua mục tiêu ở chế độ chạy không tải (idle). Kết thúc khởi động khi RPM đạt mức này.">RPM chạy không tải</span> <input id="idlerpm" value="42000" title="Tốc độ vòng tua mục tiêu ở chế độ chạy không tải (idle). Kết thúc khởi động khi RPM đạt mức này."><button class="btn" onclick="cmd('set idlerpm '+v('idlerpm'))">Đặt</button>
 <span title="Vòng tua tối đa cho phép. Vượt mức này sẽ abort ngay (bảo vệ quá tốc).">RPM tối đa</span> <input id="maxrpm" value="110000" title="Vòng tua tối đa cho phép. Vượt mức này sẽ abort ngay (bảo vệ quá tốc - OVERSPEED)."><button class="btn" onclick="cmd('set maxrpm '+v('maxrpm'))">Đặt</button>
