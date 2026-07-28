@@ -472,6 +472,11 @@ struct RpmState {
 } rpmData;
 uint32_t lastStatusPrintMs = 0;
 bool rpmDetailMode = false;   // OFF by default: basic status line only
+// OFF by default: the rest-guard (rpmAtRestGuardCondition()) must stay active so a
+// stationary sensor cannot show phantom RPM from ambient noise. Turn this ON only
+// for a deliberate bench calibration session (spinning the sensor by hand while
+// WAITING) via "set rpmcal on", then back OFF with "set rpmcal off" when done.
+bool rpmCalMode = false;
 
 // ===== Web UI =====
 // SECURITY: anyone who joins this SoftAP can arm and start the real engine via
@@ -578,6 +583,14 @@ const char* rpmEdgeName() {
 }
 
 bool rpmAtRestGuardCondition() {
+  // Confirmed on bench: with outputs OFF and the engine truly stationary, GPIO33
+  // can still show a steady-looking ~570-620 RPM from ambient EMI/pickup - low
+  // jitter, so classifyRpmNoise() alone accepts it as CLEAN. The rest guard is the
+  // only thing that catches this (real physical rest cannot be told apart from
+  // noise by signal shape alone), so it must stay ON by default. rpmCalMode is an
+  // explicit, operator-armed opt-out for bench calibration (spinning the sensor by
+  // hand while WAITING) - see "set rpmcal on/off".
+  if (rpmCalMode) return false;
   return ecuMode == MODE_WAITING && startStage == ST_NONE &&
          startUs <= (int)RPM_REST_GUARD_MAX_US &&
          pumpUs <= (int)RPM_REST_GUARD_MAX_US &&
@@ -747,7 +760,10 @@ bool isStage2Armed() {
   if (millis() > stage2ArmUntilMs) { stage2Armed = false; Serial.println("STAGE2 AUTO-DISARMED."); return false; }
   return true;
 }
-void armStage2() { stage2Armed = true; stage2ArmUntilMs = millis() + STAGE2_ARM_TIME_MS; addLog("ARMED 10s"); Serial.println("WARNING: STAGE2 ARMED FOR 10 SECONDS"); }
+void armStage2() {
+  if (rpmCalMode) { Serial.println("ERROR: cannot ARM while RPM_CAL_MODE is ON (rest-guard disabled). Type 'set rpmcal off' first."); return; }
+  stage2Armed = true; stage2ArmUntilMs = millis() + STAGE2_ARM_TIME_MS; addLog("ARMED 10s"); Serial.println("WARNING: STAGE2 ARMED FOR 10 SECONDS");
+}
 void stage2Off() {
   if (ecuMode == MODE_ABORTED) {
     // Outputs are already safe in ABORTED. SAFE OFF must NOT be a backdoor that
@@ -1218,13 +1234,17 @@ void updateRpm() {
     rpmData.rpmDiffPct = fabsf(rpmData.rpmWindow - rpmData.rpmPeriod) * 100.0f / base;
   }
 
-  {
-    // Period RPM reacts quickly; window RPM remains as a diagnostic cross-check.
-    // Real accepted pulses now always show live RPM, including while WAITING -
-    // needed so the sensor can be spun by hand for calibration/verification
-    // without the readout being clamped to zero. Genuine EMI/glitch noise is
-    // still caught by classifyRpmNoise() (rejectPct/jitter/rpmDiffPct), which
-    // is what actually gates rpmNoiseBlocksStart(), not this rest state.
+  if (rpmData.restPulseNoise) {
+    // Engine commanded OFF and rpmCalMode not armed. Confirmed on bench: ambient
+    // EMI/pickup on GPIO33 can look like a steady, low-jitter ~570-620 RPM signal
+    // even with the sensor stationary, so classifyRpmNoise() alone would accept it
+    // as CLEAN. Force RPM to zero here; raw/acc/per diagnostics are kept.
+    rpmData.rpm = 0.0f;
+    rpmData.signalRecent = false;
+    rpmData.noise = RPM_REST_NOISE;
+  } else {
+    // Outside the rest-guard (running, or rpmCalMode armed for bench calibration):
+    // period RPM reacts quickly; window RPM remains as a diagnostic cross-check.
     if (rpmData.signalRecent && rpmData.rpmPeriod > 0.0f) rpmData.rpm = rpmData.rpmPeriod;
     else if (accepted > 0) rpmData.rpm = rpmData.rpmWindow;
     else rpmData.rpm = 0.0f;
@@ -2060,6 +2080,7 @@ bool canStartAutoIdle(String& why) {
   updateRpm();
   updateEgt();
 
+  if (rpmCalMode) { why = "RPM_CAL_MODE still ON (rest-guard disabled) - type 'set rpmcal off' first"; return false; }
   if (!cfg.autoStartEnabled) { why = "auto-start disabled; use arm2 then autostart on"; return false; }
   if (ecuMode != MODE_WAITING && ecuMode != MODE_ABORTED) { why = "ECU not in WAITING/ABORTED"; return false; }
   if (ecuMode == MODE_ABORTED && !abortAcknowledged) {
@@ -2642,6 +2663,7 @@ void printHelp() {
   Serial.println("set rpmfilter <20..5000>  -> software glitch filter in us");
   Serial.println("set rpmedge rising|falling -> RPM interrupt edge");
   Serial.println("RPM guard: WAITING+outputs OFF + any edge => RPM=0, SIG=REST_NOISE, start blocked");
+  Serial.println("set rpmcal on/off -> bench-only: disable/restore the RPM rest-guard to hand-spin the sensor for calibration (blocks arm/start while ON)");
   Serial.println("checklist | resetcheck | confirmkill | set checklist on/off");
   Serial.println("test egt|rpm_noise|ign|starter|starter_ign|valve1|valve2|pump|kill");
   Serial.println("sdstatus | sdtest | set sdlog on/off");
@@ -2964,6 +2986,14 @@ void handleCommand(String cmd) {
     return;
   }
 
+  if (cmd == "set rpmcal on") {
+    if (ecuMode != MODE_WAITING && ecuMode != MODE_ABORTED) { Serial.println("ERROR: set rpmcal only while WAITING/ABORTED."); return; }
+    rpmCalMode = true; resetRpmStats();
+    Serial.println("RPM CAL MODE ON: rest-guard disabled, RPM readout now live even while WAITING (bench sensor calibration only - 'set rpmcal off' when done, before arming).");
+    addLog("RPM CAL MODE ON");
+    return;
+  }
+  if (cmd == "set rpmcal off") { rpmCalMode = false; resetRpmStats(); Serial.println("RPM CAL MODE OFF: rest-guard restored."); addLog("RPM CAL MODE OFF"); return; }
   if (cmd == "set checklist on") { cfg.requireChecklistForStart = true; Serial.println("Checklist interlock ON"); addLog("CHECKLIST INTERLOCK ON"); return; }
   if (cmd == "set checklist off") { if (!isStage2Armed()) { Serial.println("ERROR: type arm2 first."); return; } cfg.requireChecklistForStart = false; Serial.println("Checklist interlock OFF - DEBUG ONLY"); addLog("CHECKLIST INTERLOCK OFF"); return; }
   if (cmd == "set egtstart dry") { cfg.allowDryStartWhenEgtFault = true; Serial.println("EGT start mode = DRY: EGT fault converts startidle to dry starter/RPM test, no fuel/valves/ign."); addLog("EGT START MODE DRY"); return; }
