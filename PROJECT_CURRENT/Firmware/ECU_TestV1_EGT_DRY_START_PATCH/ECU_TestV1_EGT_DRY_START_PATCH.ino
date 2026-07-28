@@ -1198,14 +1198,13 @@ void updateRpm() {
     rpmData.rpmDiffPct = fabsf(rpmData.rpmWindow - rpmData.rpmPeriod) * 100.0f / base;
   }
 
-  if (rpmData.restPulseNoise) {
-    // Engine is commanded OFF. Isolated raw/accepted edges here are RPM-at-rest noise,
-    // not valid speed. Keep raw/acc/per diagnostics, but force control RPM to zero.
-    rpmData.rpm = 0.0f;
-    rpmData.signalRecent = false;
-    rpmData.noise = RPM_REST_NOISE;
-  } else {
-    // Outside WAITING/rest state, period RPM reacts quickly; window RPM remains as a diagnostic cross-check.
+  {
+    // Period RPM reacts quickly; window RPM remains as a diagnostic cross-check.
+    // Real accepted pulses now always show live RPM, including while WAITING -
+    // needed so the sensor can be spun by hand for calibration/verification
+    // without the readout being clamped to zero. Genuine EMI/glitch noise is
+    // still caught by classifyRpmNoise() (rejectPct/jitter/rpmDiffPct), which
+    // is what actually gates rpmNoiseBlocksStart(), not this rest state.
     if (rpmData.signalRecent && rpmData.rpmPeriod > 0.0f) rpmData.rpm = rpmData.rpmPeriod;
     else if (accepted > 0) rpmData.rpm = rpmData.rpmWindow;
     else rpmData.rpm = 0.0f;
@@ -2650,7 +2649,7 @@ void printRpmDetail() {
   Serial.print(" | filt="); Serial.print(rpmData.filterUs); Serial.print("us");
   Serial.print(" | edge="); Serial.print(rpmEdgeName());
   Serial.print(" | RNOISE="); Serial.print(rpmNoiseName(rpmData.noise));
-  if (rpmData.restPulseNoise) Serial.print(" | REST_GUARD_BLOCK");
+  if (rpmData.restPulseNoise) Serial.print(" | REST_ACTIVITY");
   if (rpmData.rejectedEdges > 0) Serial.print(" | NOISE_FAST");
   if (rpmData.jitterPct > 30.0f && rpmData.validIntervals > 5) Serial.print(" | RPM_UNSTABLE");
   Serial.println();
@@ -2702,7 +2701,7 @@ void printStatus(bool force = false) {
   Serial.print(" | ABORT="); Serial.print(lastAbortReason);
 
   if (rpmDetailMode) {
-    if (rpmData.restPulseNoise) Serial.print(" | REST_GUARD_BLOCK");
+    if (rpmData.restPulseNoise) Serial.print(" | REST_ACTIVITY");
     if (rpmData.rejectedEdges > 0) Serial.print(" | NOISE_FAST");
     if (rpmData.jitterPct > 30.0f && rpmData.validIntervals > 5) Serial.print(" | RPM_UNSTABLE");
   }
