@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ECU Web Serial Dashboard</title>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg-color: #121212;
+      --card-bg: #1e1e1e;
+      --accent: #00adb5;
+      --accent-hover: #008c9e;
+      --danger: #ff2e63;
+      --success: #00b894;
+      --text: #eeeeee;
+      --subtext: #b2bec3;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text);
+      margin: 0;
+      padding: 20px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 15px;
+      border-bottom: 1px solid #333;
+      margin-bottom: 20px;
+    }
+
+    .btn {
+      background-color: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 10px 15px;
+      font-size: 14px;
+      font-weight: bold;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn:hover { background-color: var(--accent-hover); }
+    .btn-danger { background-color: var(--danger); }
+    .btn-danger:hover { background-color: #d62350; }
+    .btn-success { background-color: var(--success); }
+    .btn-success:hover { background-color: #009475; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background-color: var(--card-bg);
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+
+    .card h3 {
+      margin-top: 0;
+      color: var(--subtext);
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .value-display {
+      font-size: 36px;
+      font-weight: bold;
+      color: var(--accent);
+      margin: 10px 0;
+    }
+
+    .unit { font-size: 18px; color: var(--subtext); }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 15px;
+    }
+
+    .slider-container {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    input[type=range] {
+      flex: 1;
+      height: 8px;
+      border-radius: 5px;
+      background: #333;
+      outline: none;
+      accent-color: var(--accent);
+    }
+
+    /* Khung nhập số / tinh chỉnh */
+    .step-control-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background-color: #2a2a2a;
+      padding: 6px 10px;
+      border-radius: 6px;
+    }
+
+    .num-input {
+      width: 65px;
+      background: #121212;
+      border: 1px solid #444;
+      color: #fff;
+      padding: 6px;
+      border-radius: 4px;
+      text-align: center;
+      font-weight: bold;
+    }
+
+    .btn-step {
+      background-color: #333;
+      color: #fff;
+      border: 1px solid #555;
+      padding: 6px 14px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .btn-step:hover { background-color: var(--accent); }
+
+    .btn-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .custom-preset-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-color: #555;
+      margin-right: 8px;
+    }
+
+    .status-dot.active { background-color: #00ff87; box-shadow: 0 0 8px #00ff87; }
+
+    .chart-container {
+      position: relative;
+      height: 250px;
+      width: 100%;
+    }
+
+    #console {
+      width: 100%;
+      height: 150px;
+      background-color: #000;
+      color: #00ff66;
+      font-family: 'Courier New', Courier, monospace;
+      padding: 10px;
+      border-radius: 6px;
+      overflow-y: auto;
+      box-sizing: border-box;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h2>ECU Manual V1 - Web Dashboard</h2>
+    <button id="connectBtn" class="btn">🔌 Kết Nối USB COM</button>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Vòng tua Động cơ (RPM)</h3>
+      <div class="value-display" id="rpmVal">0 <span class="unit">RPM</span></div>
+      <div>Trạng thái: <span id="rpmNoise" style="font-weight:bold; color:var(--accent);">--</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Nhiệt độ Khí xả (EGT)</h3>
+      <div class="value-display" id="egtVal">-- <span class="unit">°C</span></div>
+      <div>dEGT: <span id="degtVal">0.0</span> °C/s</div>
+    </div>
+
+    <div class="card">
+      <h3>Trạng thái Output</h3>
+      <p><span class="status-dot" id="dotIgn"></span> Đánh lửa (IGN)</p>
+      <p><span class="status-dot" id="dotV1"></span> Van 1 (VALVE 1)</p>
+      <p><span class="status-dot" id="dotV2"></span> Van 2 (VALVE 2)</p>
+    </div>
+  </div>
+
+  <!-- BIỂU ĐỒ CHARTJS -->
+  <div class="card" style="margin-bottom: 20px;">
+    <h3>Đồ thị Thời Gian Thực (EGT & RPM)</h3>
+    <div class="chart-container">
+      <canvas id="ecuChart"></canvas>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- STARTER CONTROLLER -->
+    <div class="card">
+      <h3>Điều khiển Mô-tơ Đề (Starter)</h3>
+      <div class="control-group">
+        <div class="slider-container">
+          <input type="range" id="starterSlider" min="1000" max="2000" value="1000" oninput="updateStarterFromSlider(this.value)">
+          <span id="starterUsVal" style="width: 65px; font-weight:bold; color:var(--accent);">1000 µs</span>
+        </div>
+
+        <div class="step-control-container">
+          <span style="font-size: 12px; color: var(--subtext);">Bước nhảy:</span>
+          <input type="number" id="starterStepVal" class="num-input" value="10" min="1" max="100">
+          <button class="btn-step" onclick="adjustStarter(-1)">-</button>
+          <button class="btn-step" onclick="adjustStarter(1)">+</button>
+        </div>
+
+        <div class="custom-preset-group">
+          <input type="number" id="starterCustomVal" class="num-input" value="1200" min="1000" max="2000" style="flex:1;">
+          <button class="btn" style="flex:1;" onclick="startStarterCustom()">Bật Đề</button>
+          <button class="btn btn-danger" style="flex:1;" onclick="stopStarter()">Tắt Đề</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PUMP CONTROLLER -->
+    <div class="card">
+      <h3>Điều khiển Bơm nhiên liệu (Pump)</h3>
+      <div class="control-group">
+        <div class="slider-container">
+          <input type="range" id="pumpSlider" min="1000" max="2000" value="1000" oninput="updatePumpFromSlider(this.value)">
+          <span id="pumpUsVal" style="width: 65px; font-weight:bold; color:var(--accent);">1000 µs</span>
+        </div>
+
+        <div class="step-control-container">
+          <span style="font-size: 12px; color: var(--subtext);">Bước nhảy:</span>
+          <input type="number" id="pumpStepVal" class="num-input" value="10" min="1" max="100">
+          <button class="btn-step" onclick="adjustPump(-1)">-</button>
+          <button class="btn-step" onclick="adjustPump(1)">+</button>
+        </div>
+
+        <div class="custom-preset-group">
+          <input type="number" id="pumpCustomVal" class="num-input" value="1200" min="1000" max="2000" style="flex:1;">
+          <button class="btn" style="flex:1;" onclick="startPumpCustom()">Bật Bơm</button>
+          <button class="btn btn-danger" style="flex:1;" onclick="stopPump()">Tắt Bơm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CÔNG TẮC, CONFIG SD & STOP KHẨN CẤP -->
+    <div class="card">
+      <h3>Cấu Hình SD & Khẩn Cấp</h3>
+      <div class="btn-grid" style="margin-bottom:10px;">
+        <button class="btn" onclick="toggleCmd('ign')">Toggle IGN</button>
+        <button class="btn" onclick="toggleCmd('valve1')">Toggle VALVE 1</button>
+        <button class="btn" onclick="toggleCmd('valve2')">Toggle VALVE 2</button>
+        <button class="btn" onclick="sendCmd('status')">Lấy Status</button>
+      </div>
+      
+      <!-- LƯU VÀ LOAD CONFIG SD -->
+      <div class="btn-grid" style="margin-bottom:10px;">
+        <button class="btn btn-success" onclick="sendCmd('save')">💾 Lưu SD Card</button>
+        <button class="btn" style="background-color: #6c5ce7;" onclick="sendCmd('load')">📂 Tải Config SD</button>
+      </div>
+
+      <button class="btn btn-danger" style="width:100%; padding: 12px; font-size:15px;" onclick="stopAllEmergency()">🛑 ALL OFF (STOP KHẨN CẤP)</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Màn hình Serial Log (RX / TX)</h3>
+    <div id="console"></div>
+  </div>
+
+  <script>
+    let port, writer, reader;
+    let ignState = false, v1State = false, v2State = false;
+    let ecuChart;
+    const MAX_DATA_POINTS = 30;
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const ctx = document.getElementById('ecuChart').getContext('2d');
+      ecuChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'Nhiệt độ EGT (°C)',
+              data: [],
+              borderColor: '#ff2e63',
+              backgroundColor: 'rgba(255, 46, 99, 0.2)',
+              yAxisID: 'yEgt',
+              borderWidth: 2,
+              tension: 0.3,
+              pointRadius: 2
+            },
+            {
+              label: 'Vòng tua RPM',
+              data: [],
+              borderColor: '#00adb5',
+              backgroundColor: 'rgba(0, 173, 181, 0.2)',
+              yAxisID: 'yRpm',
+              borderWidth: 2,
+              tension: 0.3,
+              pointRadius: 2
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { ticks: { color: '#b2bec3' }, grid: { color: '#333' } },
+            yEgt: {
+              type: 'linear', display: true, position: 'left',
+              title: { display: true, text: 'EGT (°C)', color: '#ff2e63' },
+              ticks: { color: '#ff2e63' }, grid: { color: '#333' }
+            },
+            yRpm: {
+              type: 'linear', display: true, position: 'right',
+              title: { display: true, text: 'RPM', color: '#00adb5' },
+              ticks: { color: '#00adb5' }, grid: { drawOnChartArea: false }
+            }
+          },
+          plugins: { legend: { labels: { color: '#eeeeee' } } }
+        }
+      });
+    });
+
+    document.getElementById('connectBtn').addEventListener('click', async () => {
+      if ('serial' in navigator) {
+        try {
+          port = await navigator.serial.requestPort();
+          await port.open({ baudRate: 57600 });
+          document.getElementById('connectBtn').innerText = "✅ Đã Kết Nối (57600)";
+          document.getElementById('connectBtn').style.backgroundColor = "#00ff87";
+          document.getElementById('connectBtn').style.color = "#000";
+          writer = port.writable.getWriter();
+          readSerialData();
+        } catch (err) {
+          alert("Lỗi kết nối Serial: " + err);
+        }
+      } else {
+        alert("Trình duyệt không hỗ trợ Web Serial API. Hãy dùng Chrome hoặc Edge.");
+      }
+    });
+
+    async function sendCmd(cmd) {
+      if (!writer) { alert("Chưa kết nối COM!"); return; }
+      const textEncoder = new TextEncoder();
+      await writer.write(textEncoder.encode(cmd + "\n"));
+      logConsole("TX -> " + cmd);
+    }
+
+    // --- STARTER LOGIC ---
+    function updateStarterFromSlider(val) {
+      document.getElementById('starterUsVal').innerText = val + " µs";
+      sendCmd('starter ' + val);
+    }
+
+    function adjustStarter(direction) {
+      let currentVal = parseInt(document.getElementById('starterSlider').value);
+      let step = parseInt(document.getElementById('starterStepVal').value) || 10;
+      let newVal = currentVal + (direction * step);
+
+      if (newVal > 2000) newVal = 2000;
+      if (newVal < 1000) newVal = 1000;
+
+      document.getElementById('starterSlider').value = newVal;
+      updateStarterFromSlider(newVal);
+    }
+
+    function startStarterCustom() {
+      let val = parseInt(document.getElementById('starterCustomVal').value) || 1000;
+      if (val < 1000) val = 1000;
+      if (val > 2000) val = 2000;
+
+      document.getElementById('starterSlider').value = val;
+      updateStarterFromSlider(val);
+    }
+
+    function stopStarter() {
+      document.getElementById('starterSlider').value = 1000;
+      document.getElementById('starterUsVal').innerText = "1000 µs";
+      sendCmd('starter off');
+    }
+
+    // --- PUMP LOGIC ---
+    function updatePumpFromSlider(val) {
+      document.getElementById('pumpUsVal').innerText = val + " µs";
+      sendCmd('pump ' + val);
+    }
+
+    function adjustPump(direction) {
+      let currentVal = parseInt(document.getElementById('pumpSlider').value);
+      let step = parseInt(document.getElementById('pumpStepVal').value) || 10;
+      let newVal = currentVal + (direction * step);
+
+      if (newVal > 2000) newVal = 2000;
+      if (newVal < 1000) newVal = 1000;
+
+      document.getElementById('pumpSlider').value = newVal;
+      updatePumpFromSlider(newVal);
+    }
+
+    function startPumpCustom() {
+      let val = parseInt(document.getElementById('pumpCustomVal').value) || 1000;
+      if (val < 1000) val = 1000;
+      if (val > 2000) val = 2000;
+
+      document.getElementById('pumpSlider').value = val;
+      updatePumpFromSlider(val);
+    }
+
+    function stopPump() {
+      document.getElementById('pumpSlider').value = 1000;
+      document.getElementById('pumpUsVal').innerText = "1000 µs";
+      sendCmd('pump off');
+    }
+
+    // --- EMERGENCY STOP ---
+    function stopAllEmergency() {
+      document.getElementById('starterSlider').value = 1000;
+      document.getElementById('starterUsVal').innerText = "1000 µs";
+      document.getElementById('pumpSlider').value = 1000;
+      document.getElementById('pumpUsVal').innerText = "1000 µs";
+      sendCmd('alloff');
+    }
+
+    function toggleCmd(type) {
+      if (type === 'ign') { ignState = !ignState; sendCmd(ignState ? 'ign on' : 'ign off'); }
+      if (type === 'valve1') { v1State = !v1State; sendCmd(v1State ? 'valve1 on' : 'valve1 off'); }
+      if (type === 'valve2') { v2State = !v2State; sendCmd(v2State ? 'valve2 on' : 'valve2 off'); }
+    }
+
+    async function readSerialData() {
+      const textDecoder = new TextDecoderStream();
+      const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+      reader = textDecoder.readable.getReader();
+
+      let lineBuffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) {
+          lineBuffer += value;
+          let lines = lineBuffer.split('\n');
+          lineBuffer = lines.pop();
+          
+          for (let line of lines) {
+            line = line.trim();
+            if (line.length > 0) {
+              logConsole("RX <- " + line);
+              parseEcuStatus(line);
+            }
+          }
+        }
+      }
+    }
+
+    function parseEcuStatus(line) {
+      // Đọc trạng thái Telemetry định kỳ
+      if (line.includes("EGT=") && line.includes("RPM=")) {
+        const parts = line.split('|').map(s => s.trim());
+        let currentEgt = null;
+        let currentRpm = null;
+
+        parts.forEach(part => {
+          if (part.startsWith("EGT=")) {
+            let valStr = part.replace("EGT=", "").replace("C", "");
+            currentEgt = parseFloat(valStr);
+            document.getElementById('egtVal').innerHTML = valStr + " <span class='unit'>°C</span>";
+          }
+          if (part.startsWith("dEGT=")) document.getElementById('degtVal').innerText = part.replace("dEGT=", "");
+          if (part.startsWith("RPM=")) {
+            let valStr = part.replace("RPM=", "");
+            currentRpm = parseInt(valStr);
+            document.getElementById('rpmVal').innerHTML = valStr + " <span class='unit'>RPM</span>";
+          }
+          if (part.startsWith("RNOISE=")) document.getElementById('rpmNoise').innerText = part.replace("RNOISE=", "");
+          if (part.startsWith("IGN=")) setDot('dotIgn', part.endsWith("1"));
+          if (part.startsWith("V1=")) setDot('dotV1', part.endsWith("1"));
+          if (part.startsWith("V2=")) setDot('dotV2', part.endsWith("1"));
+          if (part.startsWith("START=")) {
+            let us = parseInt(part.replace("START=", "").replace("us", ""));
+            if (!isNaN(us)) {
+              document.getElementById('starterSlider').value = us;
+              document.getElementById('starterUsVal').innerText = us + " µs";
+            }
+          }
+          if (part.startsWith("PUMP=")) {
+            let us = parseInt(part.replace("PUMP=", "").replace("us", ""));
+            if (!isNaN(us)) {
+              document.getElementById('pumpSlider').value = us;
+              document.getElementById('pumpUsVal').innerText = us + " µs";
+            }
+          }
+        });
+
+        if (currentEgt !== null && currentRpm !== null) {
+          updateChart(currentEgt, currentRpm);
+        }
+      }
+
+      // Đọc thông tin cấu hình nạp từ thẻ SD (Khi ấn Load)
+      if (line.includes("START_SET=") || line.includes("PUMP_SET=")) {
+        const parts = line.split('|').map(s => s.trim());
+        parts.forEach(part => {
+          if (part.startsWith("START_SET=")) {
+            let val = parseInt(part.replace("START_SET=", ""));
+            if (!isNaN(val)) document.getElementById('starterCustomVal').value = val;
+          }
+          if (part.startsWith("PUMP_SET=")) {
+            let val = parseInt(part.replace("PUMP_SET=", ""));
+            if (!isNaN(val)) document.getElementById('pumpCustomVal').value = val;
+          }
+          if (part.startsWith("START_STEP=")) {
+            let val = parseInt(part.replace("START_STEP=", ""));
+            if (!isNaN(val)) document.getElementById('starterStepVal').value = val;
+          }
+          if (part.startsWith("PUMP_STEP=")) {
+            let val = parseInt(part.replace("PUMP_STEP=", ""));
+            if (!isNaN(val)) document.getElementById('pumpStepVal').value = val;
+          }
+        });
+      }
+    }
+
+    function updateChart(egt, rpm) {
+      const timeLabel = new Date().toLocaleTimeString();
+      ecuChart.data.labels.push(timeLabel);
+      ecuChart.data.datasets[0].data.push(egt);
+      ecuChart.data.datasets[1].data.push(rpm);
+
+      if (ecuChart.data.labels.length > MAX_DATA_POINTS) {
+        ecuChart.data.labels.shift();
+        ecuChart.data.datasets[0].data.shift();
+        ecuChart.data.datasets[1].data.shift();
+      }
+
+      ecuChart.update('none');
+    }
+
+    function setDot(id, active) {
+      const el = document.getElementById(id);
+      if (active) el.classList.add('active');
+      else el.classList.remove('active');
+    }
+
+    function logConsole(msg) {
+      const c = document.getElementById('console');
+      c.innerHTML += msg + "<br>";
+      c.scrollTop = c.scrollHeight;
+    }
+  </script>
+</body>
+</html>

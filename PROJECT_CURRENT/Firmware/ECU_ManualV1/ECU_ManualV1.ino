@@ -1,33 +1,3 @@
-/*
-  ESP32 ECU Manual V1 - minimal, fully-manual bench firmware.
-
-  Rewritten from scratch (replaces ECU_TestV1_EGT_DRY_START_PATCH) with only two
-  automatic subsystems kept, both read-only sensors:
-    - RPM measurement on GPIO33 (interrupt + period/window, glitch-filtered)
-    - EGT measurement via MAX31855 thermocouple
-
-  EVERYTHING that actuates is manual only - there is NO auto-start sequence, no
-  state machine, no checklist interlock, no cooldown, no comm watchdog, no fuel
-  closed-loop. Each output is commanded directly over Serial and holds until you
-  change it. Nothing turns an output on by itself.
-
-  Interface: Serial only (115200). No WiFi, no web server.
-  SD card: used ONLY to save/load the small sensor setup (savecfg/loadcfg). No
-  CSV telemetry logging.
-
-  Pins (unchanged from the previous firmware):
-    MAX31855: CLK=18 CS=5 DO=19
-    RPM in:   33
-    ESC pump: 26   ESC starter: 25
-    VALVE1:   17   VALVE2: 16    IGN/GLOW: 32
-    SD (SPI): CS=13 SCK=14 MOSI=23 MISO=27
-
-  ESC PWM is generated with the raw ESP32 LEDC peripheral (NOT ESP32Servo - that
-  library's timer/ISR handling was shown to disturb the RPM interrupt and cap the
-  reading around 1500 RPM). ESCs are armed at 900us (below the calibrated 1000us
-  MIN) so arming succeeds even with sub-microsecond PWM rounding - see setup().
-*/
-
 #include <Arduino.h>
 #include <SPI.h>
 #include <SD.h>
@@ -39,7 +9,8 @@
   #define ESP_ARDUINO_VERSION_MAJOR 2
 #endif
 #include <Adafruit_MAX31855.h>
-#include "soc/rtc_cntl_reg.h"  // RTC_CNTL_BROWN_OUT_REG - see setup()
+#include "soc/rtc_cntl_reg.h"
+#include "soc/soc.h"
 
 // ---------------- Pins ----------------
 #define PIN_EGT_CLK    18
@@ -56,33 +27,27 @@
 #define PIN_SD_MOSI    23
 #define PIN_SD_MISO    27
 
+enum RpmNoiseLevel : uint8_t { RPM_CLEAN, RPM_WARN, RPM_NOISY, RPM_REST_NOISE, RPM_NO_SIGNAL };
 static const bool IGN_ACTIVE_HIGH   = true;
 static const bool VALVE_ACTIVE_HIGH = true;
 
-// Forward-declare the RPM noise enum with a fixed underlying type (legal C++11
-// opaque declaration). The Arduino IDE injects its auto-generated function
-// prototypes just before the first function definition (escAttach() below), and
-// some of those prototypes name RpmNoiseLevel (classifyRpmNoise/rpmNoiseName) -
-// without this they would be seen before the real enum definition and fail with
-// "'RpmNoiseLevel' does not name a type".
-enum RpmNoiseLevel : uint8_t;
-
 // ---------------- ESC PWM (raw LEDC) ----------------
-static const int ESC_SAFE_US = 1000;   // idle/zero-throttle after arming
-static const int ESC_MIN_US  = 1000;   // calibrated MIN (BLHeliSuite)
-static const int ESC_MAX_US  = 2000;   // calibrated MAX
-static const int ESC_ARM_US  = 900;    // arm below MIN so arming always succeeds
+static const int ESC_SAFE_US = 900;   
+static const int ESC_MIN_US  = 900;   
+static const int ESC_MAX_US  = 2000;   
+static const int ESC_ARM_US  = 900;    
 static const int ESC_PWM_FREQ_HZ  = 50;
 static const int ESC_PWM_RES_BITS = 16;
-static const int LEDC_CH_PUMP  = 0;    // only used on core <3
+static const int LEDC_CH_PUMP  = 0;    
 static const int LEDC_CH_START = 1;
 
-// Actual LEDC period (us) read back after attach - LEDC can only land on a
-// frequency its clock divider allows, so the real period is often a few tens of
-// Hz off nominal 50Hz. Duty is computed from this real period, not an assumed
-// 20000us, so the pulse width matches the requested us to <1us.
 double escPumpPeriodUs  = 20000.0;
 double escStartPeriodUs = 20000.0;
+
+// Forward declarations
+void handleCommand(String cmd);
+void IRAM_ATTR rpmISR();
+void attachRpmInterrupt();
 
 double escAttach(uint8_t pin, int legacyChannel) {
   double actualHz;
@@ -100,7 +65,8 @@ double escAttach(uint8_t pin, int legacyChannel) {
 
 void escWriteUs(uint8_t pin, int legacyChannel, int us, double periodUs) {
   const uint32_t maxDuty = (1UL << ESC_PWM_RES_BITS) - 1;
-  uint32_t duty = (uint32_t)(((double)us * (double)maxDuty) / periodUs + 0.5);
+  double dutyRatio = (double)us / periodUs;
+  uint32_t duty = (uint32_t)(dutyRatio * (double)maxDuty + 0.5);
   if (duty > maxDuty) duty = maxDuty;
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
   ledcWrite(pin, duty);
@@ -114,11 +80,8 @@ void escWriteUs(uint8_t pin, int legacyChannel, int us, double periodUs) {
 static const uint32_t RPM_SAMPLE_MS         = 100;
 static const uint32_t RPM_SIGNAL_TIMEOUT_MS = 1000;
 
-// Software glitch filter (min quiet-period between accepted edges).
 volatile uint32_t rpmMinPulseUs = 120;
 int rpmEdgeMode = RISING;
-
-void IRAM_ATTR rpmISR();
 
 volatile uint32_t isrLastRawEdgeUs = 0;
 volatile uint32_t isrLastAcceptedPulseUs = 0;
@@ -131,8 +94,6 @@ volatile uint32_t isrMinDtUs = 0xFFFFFFFFUL;
 volatile uint32_t isrMaxDtUs = 0;
 volatile uint64_t isrSumDtUs = 0;
 volatile uint64_t isrSumDtSqUs = 0;
-
-enum RpmNoiseLevel : uint8_t { RPM_CLEAN, RPM_WARN, RPM_NOISY, RPM_REST_NOISE, RPM_NO_SIGNAL };
 
 struct RpmState {
   float rpm = 0.0f, rpmWindow = 0.0f, rpmPeriod = 0.0f;
@@ -147,9 +108,6 @@ struct RpmState {
 
 uint8_t  pulsesPerRev = 1;
 bool     rpmDetailMode = false;
-// When true the rest-guard is disabled so the sensor can be hand-spun for
-// calibration and still show live RPM. OFF by default: with outputs off, ambient
-// EMI on GPIO33 can look like a steady low RPM, so the guard normally forces 0.
 bool     rpmCalMode = false;
 
 const char* rpmNoiseName(RpmNoiseLevel n) {
@@ -173,7 +131,6 @@ bool allOutputsOff() {
 }
 
 bool rpmAtRestGuardCondition() {
-  // All outputs off + not calibrating => any edge is treated as at-rest noise.
   if (rpmCalMode) return false;
   return allOutputsOff();
 }
@@ -189,8 +146,34 @@ RpmNoiseLevel classifyRpmNoise(bool recent, uint32_t raw, uint32_t accepted, uin
   return RPM_CLEAN;
 }
 
+String serialCmdBuf = "";
+
+void processSerialRx() {
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+
+    if ((c < 32 || c > 126) && c != '\n' && c != '\r') {
+      continue; 
+    }
+
+    if (c == '\n') {
+      if (serialCmdBuf.length() > 0) {
+        Serial.print("-> [RX Received]: ");
+        Serial.println(serialCmdBuf);
+
+        handleCommand(serialCmdBuf);
+        serialCmdBuf = "";
+      }
+    } else if (c != '\r') {
+      if (serialCmdBuf.length() < 80) {
+        serialCmdBuf += c;
+      }
+    }
+  }
+}
+
 void attachRpmInterrupt() {
-  detachInterrupt(PIN_RPM);
+  detachInterrupt(digitalPinToInterrupt(PIN_RPM));
   attachInterrupt(digitalPinToInterrupt(PIN_RPM), rpmISR, rpmEdgeMode);
 }
 
@@ -205,8 +188,6 @@ void IRAM_ATTR rpmISR() {
   if (dtRawUs < filterUs) { isrRejectedEdges++; return; }
   if (isrLastAcceptedPulseUs != 0) {
     uint32_t dtAcceptedUs = nowUs - isrLastAcceptedPulseUs;
-    // Adaptive mask: reject edges within half of the last accepted period (a
-    // turbine can't double speed in one rev), catching isolated EMI spikes.
     uint32_t maskUs = filterUs;
     if (isrLastPeriodUs > 0 && (isrLastPeriodUs >> 1) > maskUs) maskUs = (isrLastPeriodUs >> 1);
     if (dtAcceptedUs < maskUs) { isrRejectedEdges++; return; }
@@ -334,19 +315,18 @@ void updateEgt() {
   egt.prevC = egt.c; egt.c = (float)tc; egt.ok = true; egt.fault = 0; egt.lastGoodMs = nowMs;
 }
 
-// ---------------- SD config (setup only, no telemetry) ----------------
-SPIClass sdSPI(VSPI);
+// ---------------- SD config (Chuyển sang HSPI để không đụng VSPI của MAX31855) ----------------
+SPIClass sdSPI(HSPI);
 bool sdOk = false, sdMounted = false;
 static const uint32_t SD_SPI_HZ = 1000000;
 static const char* CONFIG_PATH = "/ECUCFG.TXT";
 
 bool mountSd() {
   if (sdMounted) return sdOk;
-  sdMounted = true;
   sdSPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
-  if (!SD.begin(PIN_SD_CS, sdSPI, SD_SPI_HZ)) { sdOk = false; Serial.println("SD: begin() FAIL."); return false; }
-  if (SD.cardType() == CARD_NONE) { sdOk = false; Serial.println("SD: no card."); return false; }
-  sdOk = true; return true;
+  if (!SD.begin(PIN_SD_CS, sdSPI, SD_SPI_HZ)) { sdOk = false; sdMounted = true; Serial.println("SD: begin() FAIL."); return false; }
+  if (SD.cardType() == CARD_NONE) { sdOk = false; sdMounted = true; Serial.println("SD: no card."); return false; }
+  sdOk = true; sdMounted = true; return true;
 }
 
 static int clampInt(long v, long lo, long hi) { return (int)(v < lo ? lo : (v > hi ? hi : v)); }
@@ -357,7 +337,7 @@ bool saveConfigToSd() {
   File f = SD.open(CONFIG_PATH, FILE_WRITE);
   if (!f) { Serial.println("SAVECFG: open FAIL."); return false; }
   f.println("# ECU Manual V1 sensor setup - auto-loaded on boot");
-  f.print("ppr=");       f.println((int)pulsesPerRev);
+  f.print("ppr=");        f.println((int)pulsesPerRev);
   f.print("rpmfilter="); f.println((uint32_t)rpmMinPulseUs);
   f.print("rpmedge=");   f.println(rpmEdgeName());
   f.close();
@@ -378,8 +358,12 @@ bool loadConfigFromSd() {
     String key = line.substring(0, eq); key.trim();
     String val = line.substring(eq + 1); val.trim();
     long n = val.toInt();
-    if      (key == "ppr")       pulsesPerRev = (n == 2) ? 2 : 1;
-    else if (key == "rpmfilter") rpmMinPulseUs = (uint32_t)clampInt(n, 20, 5000);
+    if      (key == "ppr")        pulsesPerRev = (n == 2) ? 2 : 1;
+    else if (key == "rpmfilter") {
+      noInterrupts();
+      rpmMinPulseUs = (uint32_t)clampInt(n, 20, 5000);
+      interrupts();
+    }
     else if (key == "rpmedge")   rpmEdgeMode = (val == "FALLING") ? FALLING : RISING;
     else continue;
     applied++;
@@ -427,10 +411,9 @@ void printHelp() {
   Serial.println("pump <1000..2000>    | pump off     -> hold pump ESC PWM");
   Serial.println("ign on | ign off            -> igniter/glow");
   Serial.println("valve1 on|off | valve2 on|off");
-  Serial.println("esccal start | esccal cancel -> ESC throttle-range calib: PUMP+STARTER to 2000us, auto-drop to 1000us after 5s");
+  Serial.println("esccal start | esccal cancel -> ESC throttle-range calib");
   Serial.println("alloff | stop               -> all outputs to safe");
   Serial.println("savecfg | loadcfg           -> save/reload sensor setup to SD");
-  Serial.println("(Fully manual: every output holds until you change it. Nothing auto-starts.)");
 }
 
 void printStatus() {
@@ -512,14 +495,14 @@ void handleCommand(String cmd) {
     if (p != 1 && p != 2) { Serial.println("ERROR: ppr 1 or 2"); return; }
     pulsesPerRev = p; resetRpmStats(); Serial.println("OK"); return;
   }
-  if (cmd == "set rpmcal on") { rpmCalMode = true; resetRpmStats(); Serial.println("RPM CAL ON: rest-guard disabled (hand-spin). 'set rpmcal off' when done."); return; }
-  if (cmd == "set rpmcal off") { rpmCalMode = false; resetRpmStats(); Serial.println("RPM CAL OFF: rest-guard restored."); return; }
+  if (cmd == "set rpmcal on") { rpmCalMode = true; resetRpmStats(); Serial.println("RPM CAL ON."); return; }
+  if (cmd == "set rpmcal off") { rpmCalMode = false; resetRpmStats(); Serial.println("RPM CAL OFF."); return; }
 
   if (cmd.startsWith("starter ")) {
     String arg = cmd.substring(String("starter ").length()); arg.trim();
     if (arg == "off") { startUs = ESC_SAFE_US; applyOutputs(); Serial.println("STARTER OFF."); return; }
     int us = arg.toInt();
-    if (us < ESC_MIN_US || us > ESC_MAX_US) { Serial.println("ERROR: starter 1000..2000 (or 'starter off')"); return; }
+    if (us < ESC_MIN_US || us > ESC_MAX_US) { Serial.println("ERROR: starter 1000..2000"); return; }
     startUs = us; applyOutputs();
     Serial.print("STARTER HOLD at "); Serial.print(us); Serial.println("us"); return;
   }
@@ -527,7 +510,7 @@ void handleCommand(String cmd) {
     String arg = cmd.substring(String("pump ").length()); arg.trim();
     if (arg == "off") { pumpUs = ESC_SAFE_US; applyOutputs(); Serial.println("PUMP OFF."); return; }
     int us = arg.toInt();
-    if (us < ESC_MIN_US || us > ESC_MAX_US) { Serial.println("ERROR: pump 1000..2000 (or 'pump off')"); return; }
+    if (us < ESC_MIN_US || us > ESC_MAX_US) { Serial.println("ERROR: pump 1000..2000"); return; }
     pumpUs = us; applyOutputs();
     Serial.print("PUMP HOLD at "); Serial.print(us); Serial.println("us"); return;
   }
@@ -542,18 +525,17 @@ void handleCommand(String cmd) {
     escCalActive = true;
     startUs = ESC_MAX_US; pumpUs = ESC_MAX_US; applyOutputs();
     escCalPhaseUntilMs = millis() + ESC_CAL_MAX_HOLD_MS;
-    Serial.print("ESC CAL: MAX 2000us on PUMP+STARTER. Power the ESCs now. Auto-drop to MIN in ");
-    Serial.print(ESC_CAL_MAX_HOLD_MS / 1000); Serial.println("s."); return;
+    Serial.println("ESC CAL: MAX 2000us. Auto-drop to MIN after 5s."); return;
   }
   if (cmd == "esccal cancel" || cmd == "esccal off") {
     escCalActive = false; escCalPhaseUntilMs = 0;
     startUs = ESC_SAFE_US; pumpUs = ESC_SAFE_US; applyOutputs();
-    Serial.println("ESC CAL cancelled, outputs safe."); return;
+    Serial.println("ESC CAL cancelled."); return;
   }
 
   if (cmd == "alloff" || cmd == "stop" || cmd == "off") { allOff(); Serial.println("ALL OUTPUTS SAFE."); return; }
   if (cmd == "savecfg") { saveConfigToSd(); return; }
-  if (cmd == "loadcfg") { if (loadConfigFromSd()) { resetRpmStats(); attachRpmInterrupt(); Serial.println("Config reloaded."); } else Serial.println("No saved config applied."); return; }
+  if (cmd == "loadcfg") { if (loadConfigFromSd()) { resetRpmStats(); attachRpmInterrupt(); Serial.println("Config reloaded."); } return; }
 
   Serial.println("Unknown command. Type help");
 }
@@ -561,18 +543,13 @@ void handleCommand(String cmd) {
 // ---------------- setup / loop ----------------
 static const uint32_t STATUS_PRINT_MS = 250;
 uint32_t lastStatusPrintMs = 0;
-String serialCmdBuf = "";
 
 void setup() {
-  // Diagnostic-only: the previous firmware showed repeated brownout resets during
-  // the ESC arm window on this board's supply. Disabling the detector lets the
-  // chip run through a brief under-voltage dip instead of reset-looping. This does
-  // NOT fix a real supply problem - add a bulk cap (470-1000uF low-ESR + 100nF) at
-  // the ESP32 power input and/or separate it from the ESC/motor rail, then this
-  // line can be removed.
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+  #if defined(RTC_CNTL_BROWN_OUT_REG)
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Safe disable Brownout detector
+  #endif
 
-  Serial.begin(115200);
+  Serial.begin(57600);
   delay(400);
 
   pinMode(PIN_IGN, OUTPUT); pinMode(PIN_VALVE_1, OUTPUT); pinMode(PIN_VALVE_2, OUTPUT);
@@ -581,17 +558,14 @@ void setup() {
   digitalWrite(PIN_VALVE_1, VALVE_ACTIVE_HIGH ? LOW : HIGH);
   digitalWrite(PIN_VALVE_2, VALVE_ACTIVE_HIGH ? LOW : HIGH);
 
+  mountSd();
   loadConfigFromSd();
   attachRpmInterrupt();
 
   escPumpPeriodUs  = escAttach(PIN_ESC_PUMP, LEDC_CH_PUMP);
   escStartPeriodUs = escAttach(PIN_ESC_START, LEDC_CH_START);
-  Serial.print("ESC PWM actual period: pump="); Serial.print(escPumpPeriodUs, 2);
-  Serial.print("us start="); Serial.print(escStartPeriodUs, 2); Serial.println("us (nominal 20000us)");
 
-  // Arm ESCs at 900us (below MIN) so arming always succeeds despite PWM rounding,
-  // then hold before switching to the normal safe 1000us.
-  Serial.print("ESC ARM: "); Serial.print(ESC_ARM_US); Serial.println("us, holding 4s - listen for the arm beep...");
+  // Arm ESCs
   escWriteUs(PIN_ESC_PUMP, LEDC_CH_PUMP, ESC_ARM_US, escPumpPeriodUs);
   escWriteUs(PIN_ESC_START, LEDC_CH_START, ESC_ARM_US, escStartPeriodUs);
   delay(4000);
@@ -602,23 +576,10 @@ void setup() {
 
   Serial.println("ECU Manual V1 booted (Serial-only, fully manual).");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
-  Serial.print("RPM edge="); Serial.print(rpmEdgeName());
-  Serial.print(" filter="); Serial.print((uint32_t)rpmMinPulseUs);
-  Serial.print("us ppr="); Serial.println((int)pulsesPerRev);
-  Serial.println("Type help for commands. All outputs safe.");
 }
 
 void loop() {
-  while (Serial.available()) {
-    char c = (char)Serial.read();
-    if (c == '\n') {
-      if (serialCmdBuf.length()) { handleCommand(serialCmdBuf); serialCmdBuf = ""; }
-    } else if (c != '\r') {
-      if (serialCmdBuf.length() < 80) serialCmdBuf += c;
-    }
-  }
-
-  // ESC throttle-range calibration: drop MAX->MIN after the hold window (non-blocking).
+  processSerialRx();
   if (escCalActive && escCalPhaseUntilMs > 0 && millis() >= escCalPhaseUntilMs) {
     startUs = ESC_MIN_US; pumpUs = ESC_MIN_US; applyOutputs();
     escCalPhaseUntilMs = 0; escCalActive = false;
@@ -627,11 +588,10 @@ void loop() {
 
   updateRpm();
   updateEgt();
-  applyOutputs();
+  applyOutputs(); 
 
   if (millis() - lastStatusPrintMs >= STATUS_PRINT_MS) {
     lastStatusPrintMs = millis();
-    printStatus();
     if (rpmDetailMode) printRpmDetail();
   }
 }
