@@ -104,19 +104,39 @@ static const int ESC_PWM_RES_BITS = 16;
 static const int LEDC_CH_PUMP  = 0;
 static const int LEDC_CH_START = 1;
 
-void escAttach(uint8_t pin, int legacyChannel) {
+// escWriteUs() used to assume an exact 20000us (50Hz) period when converting us ->
+// duty. LEDC can only hit a frequency the clock divider allows - at 16-bit
+// resolution the real output is often a few tens of Hz off nominal 50Hz - so the
+// actual pulse width was silently a bit off from the requested us. That slack was
+// invisible while the ESC's learned MIN/MAX endpoints were far apart, but after a
+// BLHeliSuite throttle-range recalibration to tighter endpoints it was enough to
+// push the pulse outside the ESC's accepted range, so the ESC stopped responding
+// even though a real PWM signal was still present on the pin (confirmed on scope).
+// Fix: read back the frequency LEDC actually configured via ledcReadFreq() right
+// after attach, and use that real period for every duty conversion instead of the
+// assumed 20000us. Cached per-output since pump/starter may land on slightly
+// different actual frequencies depending on which LEDC timer they get assigned.
+double escPumpPeriodUs = 20000.0;
+double escStartPeriodUs = 20000.0;
+
+double escAttach(uint8_t pin, int legacyChannel) {
+  double actualHz;
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
   (void)legacyChannel;
   ledcAttach(pin, ESC_PWM_FREQ_HZ, ESC_PWM_RES_BITS);
+  actualHz = ledcReadFreq(pin);
 #else
   ledcSetup(legacyChannel, ESC_PWM_FREQ_HZ, ESC_PWM_RES_BITS);
   ledcAttachPin(pin, legacyChannel);
+  actualHz = ledcReadFreq(legacyChannel);
 #endif
+  return (actualHz > 0.0) ? (1000000.0 / actualHz) : (1000000.0 / ESC_PWM_FREQ_HZ);
 }
 
-void escWriteUs(uint8_t pin, int legacyChannel, int us) {
+void escWriteUs(uint8_t pin, int legacyChannel, int us, double periodUs) {
   const uint32_t maxDuty = (1UL << ESC_PWM_RES_BITS) - 1;
-  uint32_t duty = (uint64_t)us * maxDuty / 20000UL; // 20ms period at 50Hz
+  uint32_t duty = (uint32_t)(((double)us * (double)maxDuty) / periodUs + 0.5);
+  if (duty > maxDuty) duty = maxDuty;
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
   ledcWrite(pin, duty);
 #else
@@ -641,8 +661,8 @@ void applyOutputs() {
   // setup() nen cache nay khong bi lech so voi trang thai LEDC thuc te.
   static int lastPumpUs = -1;
   static int lastStartUs = -1;
-  if (pumpUs != lastPumpUs) { escWriteUs(PIN_ESC_PUMP, LEDC_CH_PUMP, pumpUs); lastPumpUs = pumpUs; }
-  if (startUs != lastStartUs) { escWriteUs(PIN_ESC_START, LEDC_CH_START, startUs); lastStartUs = startUs; }
+  if (pumpUs != lastPumpUs) { escWriteUs(PIN_ESC_PUMP, LEDC_CH_PUMP, pumpUs, escPumpPeriodUs); lastPumpUs = pumpUs; }
+  if (startUs != lastStartUs) { escWriteUs(PIN_ESC_START, LEDC_CH_START, startUs, escStartPeriodUs); lastStartUs = startUs; }
   writeActiveDigital(PIN_IGN, ignCmd, IGN_ACTIVE_HIGH);
   writeActiveDigital(PIN_VALVE_1, valve1Cmd, VALVE_ACTIVE_HIGH);
   writeActiveDigital(PIN_VALVE_2, valve2Cmd, VALVE_ACTIVE_HIGH);
@@ -3035,8 +3055,10 @@ void setup() {
   // rpmedge/rpmfilter takes effect on this boot. Values are clamped on load.
   loadConfigFromSd();
   attachRpmInterrupt();
-  escAttach(PIN_ESC_PUMP, LEDC_CH_PUMP);
-  escAttach(PIN_ESC_START, LEDC_CH_START);
+  escPumpPeriodUs = escAttach(PIN_ESC_PUMP, LEDC_CH_PUMP);
+  escStartPeriodUs = escAttach(PIN_ESC_START, LEDC_CH_START);
+  Serial.print("ESC PWM actual period: pump="); Serial.print(escPumpPeriodUs, 2);
+  Serial.print("us start="); Serial.print(escStartPeriodUs, 2); Serial.println("us (nominal 20000us)");
   forceSafeOutputs();
   lastOperatorLinkMs = millis();
   bool thermoOk = thermo.begin();
