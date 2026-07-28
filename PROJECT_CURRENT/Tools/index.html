@@ -278,10 +278,10 @@
         <button class="btn" onclick="sendCmd('status')">Lấy Status</button>
       </div>
       
-      <!-- LƯU VÀ LOAD CONFIG SD -->
+      <!-- LƯU VÀ LOAD CONFIG SD (Đã sửa lệnh) -->
       <div class="btn-grid" style="margin-bottom:10px;">
-        <button class="btn btn-success" onclick="sendCmd('save')">💾 Lưu SD Card</button>
-        <button class="btn" style="background-color: #6c5ce7;" onclick="sendCmd('load')">📂 Tải Config SD</button>
+        <button class="btn btn-success" onclick="sendCmd('savecfg')">💾 Lưu SD Card</button>
+        <button class="btn" style="background-color: #6c5ce7;" onclick="sendCmd('loadcfg')">📂 Tải Config SD</button>
       </div>
 
       <button class="btn btn-danger" style="width:100%; padding: 12px; font-size:15px;" onclick="stopAllEmergency()">🛑 ALL OFF (STOP KHẨN CẤP)</button>
@@ -367,10 +367,12 @@
       }
     });
 
+    // Cập nhật hàm sendCmd để loại bỏ khoảng trắng dư thừa
     async function sendCmd(cmd) {
       if (!writer) { alert("Chưa kết nối COM!"); return; }
       const textEncoder = new TextEncoder();
-      await writer.write(textEncoder.encode(cmd + "\n"));
+      const cleanCmd = cmd.trim() + "\n";
+      await writer.write(textEncoder.encode(cleanCmd));
       logConsole("TX -> " + cmd);
     }
 
@@ -482,7 +484,6 @@
     }
 
     function parseEcuStatus(line) {
-      // Đọc trạng thái Telemetry định kỳ
       if (line.includes("EGT=") && line.includes("RPM=")) {
         const parts = line.split('|').map(s => s.trim());
         let currentEgt = null;
@@ -525,7 +526,6 @@
         }
       }
 
-      // Đọc thông tin cấu hình nạp từ thẻ SD (Khi ấn Load)
       if (line.includes("START_SET=") || line.includes("PUMP_SET=")) {
         const parts = line.split('|').map(s => s.trim());
         parts.forEach(part => {

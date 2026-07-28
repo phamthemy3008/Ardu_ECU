@@ -340,6 +340,11 @@ bool saveConfigToSd() {
   f.print("ppr=");        f.println((int)pulsesPerRev);
   f.print("rpmfilter="); f.println((uint32_t)rpmMinPulseUs);
   f.print("rpmedge=");   f.println(rpmEdgeName());
+  
+  // LƯU THÊM GIÁ TRỊ PUMP VÀ STARTER
+  f.print("pump=");      f.println(pumpUs);
+  f.print("start=");     f.println(startUs);
+  
   f.close();
   Serial.println("SAVECFG: OK -> /ECUCFG.TXT");
   return true;
@@ -365,6 +370,11 @@ bool loadConfigFromSd() {
       interrupts();
     }
     else if (key == "rpmedge")   rpmEdgeMode = (val == "FALLING") ? FALLING : RISING;
+    
+    // TẢI THÊM GIÁ TRỊ PUMP VÀ STARTER TỪ FILE
+    else if (key == "pump")      pumpUs = clampInt(n, ESC_MIN_US, ESC_MAX_US);
+    else if (key == "start")     startUs = clampInt(n, ESC_MIN_US, ESC_MAX_US);
+    
     else continue;
     applied++;
   }
@@ -535,8 +545,16 @@ void handleCommand(String cmd) {
 
   if (cmd == "alloff" || cmd == "stop" || cmd == "off") { allOff(); Serial.println("ALL OUTPUTS SAFE."); return; }
   if (cmd == "savecfg") { saveConfigToSd(); return; }
-  if (cmd == "loadcfg") { if (loadConfigFromSd()) { resetRpmStats(); attachRpmInterrupt(); Serial.println("Config reloaded."); } return; }
-
+  if (cmd == "loadcfg") { 
+    if (loadConfigFromSd()) { 
+      resetRpmStats(); 
+      attachRpmInterrupt(); 
+      applyOutputs();      // Bắt buộc ESC chạy theo mức PWM mới load
+      Serial.println("Config reloaded."); 
+      printStatus();       // Gửi status về web để UI đồng bộ lại thanh trượt
+    } 
+    return; 
+  }
   Serial.println("Unknown command. Type help");
 }
 
@@ -594,4 +612,5 @@ void loop() {
     lastStatusPrintMs = millis();
     if (rpmDetailMode) printRpmDetail();
   }
+  printstatus();
 }
