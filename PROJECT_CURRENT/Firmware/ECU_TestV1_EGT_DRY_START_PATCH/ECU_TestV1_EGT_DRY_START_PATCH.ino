@@ -100,6 +100,16 @@ static const bool VALVE_ACTIVE_HIGH = true;
 static const int ESC_SAFE_US = 1000;
 static const int ESC_MIN_US  = 1000;
 static const int ESC_MAX_US  = 2000;
+// Sending exactly ESC_MIN_US (1000us, the same value BLHeliSuite calibrated as
+// MIN) as the arm signal leaves zero margin: any sub-microsecond duty-quantization
+// rounding that lands a hair above 1000us can read to the ESC as "not quite zero",
+// so it never finishes arming. Confirmed on bench against a known-good ESP8266
+// (Servo.h/analogWrite) reference on the SAME motor/battery/ESC that deliberately
+// arms at 900us (below MIN, with margin) for exactly this reason - our ESP32 arm
+// beep sounded different from that reference's successful-arm beep. Used only for
+// the boot arm-hold window in setup() (bypasses the normal ESC_MIN_US clamp via a
+// direct escWriteUs() call); everything after boot still uses ESC_SAFE_US=1000.
+static const int ESC_ARM_US = 900;
 
 // ---- ESC PWM via raw LEDC (see include-block comment above) ----
 static const int ESC_PWM_FREQ_HZ = 50;
@@ -3151,6 +3161,16 @@ void setup() {
   escStartPeriodUs = escAttach(PIN_ESC_START, LEDC_CH_START);
   Serial.print("ESC PWM actual period: pump="); Serial.print(escPumpPeriodUs, 2);
   Serial.print("us start="); Serial.print(escStartPeriodUs, 2); Serial.println("us (nominal 20000us)");
+  // ESC arm sequence: write ESC_ARM_US (900us, below the calibrated MIN) directly
+  // via escWriteUs() - bypassing applyOutputs()'s ESC_MIN_US clamp, which would
+  // otherwise force this back up to 1000us - and hold it with WiFi still OFF so
+  // the ESC has an unambiguous "definitely zero" signal to arm against. Only
+  // after this window do we switch to the normal ESC_SAFE_US=1000 for operation.
+  Serial.print("ESC ARM: writing "); Serial.print(ESC_ARM_US);
+  Serial.println("us (below calibrated MIN) directly, holding 4s - listen for the ESC arm beep now...");
+  escWriteUs(PIN_ESC_PUMP, LEDC_CH_PUMP, ESC_ARM_US, escPumpPeriodUs);
+  escWriteUs(PIN_ESC_START, LEDC_CH_START, ESC_ARM_US, escStartPeriodUs);
+  delay(4000);
   forceSafeOutputs();
   lastOperatorLinkMs = millis();
   bool thermoOk = thermo.begin();
@@ -3167,8 +3187,7 @@ void setup() {
   Serial.println("STATUS_LED GPIO2: active-low, slow=WAITING, quick=ARMED, solid=START/RUN, fast=ABORT/TEST.");
   Serial.print("SD_LOG: "); Serial.print(sdOk ? "OK file=" : "FAIL file="); Serial.println(sdLogPath);
   Serial.println("EGT OPEN behavior: startidle => DRY START/RPM TEST only, no fuel/valves/ign. Use 'set egtstart strict' to block instead.");
-  Serial.println("Outputs safe, WiFi OFF during ESC arm window. Waiting for ESC to finish arming...");
-  delay(2500); // hold ESCs at stable ESC_SAFE_US (1000us) with WiFi OFF - see comment above
+  Serial.println("Outputs safe (ESC arm window already completed above).");
   if (cfg.webEnabled) startWebServer();   // WiFi AP starts LAST, only after the arm window is done
   Serial.println("Auto-start disabled. Type help.");
 }
