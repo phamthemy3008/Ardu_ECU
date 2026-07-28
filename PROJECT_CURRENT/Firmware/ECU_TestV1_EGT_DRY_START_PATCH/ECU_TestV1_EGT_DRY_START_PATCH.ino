@@ -3121,6 +3121,13 @@ void handleCommand(String cmd) {
 void setup() {
   Serial.begin(115200);
   delay(400);
+  // WiFi OFF for the entire ESC arm window below. Starting the SoftAP radio draws
+  // sudden current spikes (beacon/TX bursts) that can glitch a marginal supply/GND
+  // right when the ESC needs an uninterrupted, stable low-throttle signal to finish
+  // arming - a known ESP32/ESP8266 WiFi-vs-PWM interaction. Explicit WiFi.mode(OFF)
+  // here (not just "don't call startWebServer() yet") also covers a warm
+  // reset/reflash where the radio state persisted from a previous boot.
+  WiFi.mode(WIFI_OFF);
   pinMode(PIN_IGN, OUTPUT); pinMode(PIN_VALVE_1, OUTPUT); pinMode(PIN_VALVE_2, OUTPUT);
   pinMode(PIN_STATUS_LED, OUTPUT); writeStatusLed(false);
   pinMode(PIN_USER_BTN, INPUT_PULLUP); // external 10k pull-up is also OK; button shorts to GND
@@ -3141,7 +3148,6 @@ void setup() {
   initSdLogging();
   addLog("BOOT Test ECU V1 WebUI/TestWizard");
   Serial.println("Test ECU V1 WebUI/TestWizard booted.");
-  if (cfg.webEnabled) startWebServer();
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
   Serial.print("RPM edge = "); Serial.println(rpmEdgeName());
   Serial.print("RPM filter = "); Serial.print((uint32_t)rpmMinPulseUs); Serial.println(" us");
@@ -3150,8 +3156,10 @@ void setup() {
   Serial.println("STATUS_LED GPIO2: active-low, slow=WAITING, quick=ARMED, solid=START/RUN, fast=ABORT/TEST.");
   Serial.print("SD_LOG: "); Serial.print(sdOk ? "OK file=" : "FAIL file="); Serial.println(sdLogPath);
   Serial.println("EGT OPEN behavior: startidle => DRY START/RPM TEST only, no fuel/valves/ign. Use 'set egtstart strict' to block instead.");
-  Serial.println("Outputs safe. Auto-start disabled. Type help.");
-  delay(2500); // give ESCs safe 1000us pulse
+  Serial.println("Outputs safe, WiFi OFF during ESC arm window. Waiting for ESC to finish arming...");
+  delay(2500); // hold ESCs at stable ESC_SAFE_US (1000us) with WiFi OFF - see comment above
+  if (cfg.webEnabled) startWebServer();   // WiFi AP starts LAST, only after the arm window is done
+  Serial.println("Auto-start disabled. Type help.");
 }
 
 void loop() {
