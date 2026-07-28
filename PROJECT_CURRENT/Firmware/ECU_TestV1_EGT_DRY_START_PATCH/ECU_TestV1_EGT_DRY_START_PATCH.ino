@@ -51,6 +51,7 @@
 #include <Adafruit_MAX31855.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include "soc/rtc_cntl_reg.h"  // RTC_CNTL_BROWN_OUT_REG - brownout-detector diagnostic only, see setup()
 
 // Forward declarations of the state enums (full definitions are further down).
 // Required because escAttach()/escWriteUs() below are now the first functions in
@@ -87,6 +88,11 @@ enum TestResult : uint8_t;
 #define PIN_SD_SCK     14   // SPI microSD SCK/CLK
 #define PIN_SD_MOSI    23   // SPI microSD MOSI/DI
 #define PIN_SD_MISO    27   // SPI microSD MISO/DO
+// Input-only, ADC1 (no WiFi/ADC2 conflict), unused elsewhere on this board. Used
+// only by "esctest" (see handleCommand()): jumper a wire from this pin to
+// PIN_ESC_PUMP/PIN_ESC_START to measure the ESP32's own actual output pulse width
+// with pulseIn(), when a scope isn't available/practical for a 50Hz signal.
+#define PIN_ESC_SELFTEST_IN 34
 
 static const bool IGN_ACTIVE_HIGH = true;
 static const bool VALVE_ACTIVE_HIGH = true;
@@ -94,6 +100,16 @@ static const bool VALVE_ACTIVE_HIGH = true;
 static const int ESC_SAFE_US = 1000;
 static const int ESC_MIN_US  = 1000;
 static const int ESC_MAX_US  = 2000;
+// Sending exactly ESC_MIN_US (1000us, the same value BLHeliSuite calibrated as
+// MIN) as the arm signal leaves zero margin: any sub-microsecond duty-quantization
+// rounding that lands a hair above 1000us can read to the ESC as "not quite zero",
+// so it never finishes arming. Confirmed on bench against a known-good ESP8266
+// (Servo.h/analogWrite) reference on the SAME motor/battery/ESC that deliberately
+// arms at 900us (below MIN, with margin) for exactly this reason - our ESP32 arm
+// beep sounded different from that reference's successful-arm beep. Used only for
+// the boot arm-hold window in setup() (bypasses the normal ESC_MIN_US clamp via a
+// direct escWriteUs() call); everything after boot still uses ESC_SAFE_US=1000.
+static const int ESC_ARM_US = 900;
 
 // ---- ESC PWM via raw LEDC (see include-block comment above) ----
 static const int ESC_PWM_FREQ_HZ = 50;
@@ -104,19 +120,39 @@ static const int ESC_PWM_RES_BITS = 16;
 static const int LEDC_CH_PUMP  = 0;
 static const int LEDC_CH_START = 1;
 
-void escAttach(uint8_t pin, int legacyChannel) {
+// escWriteUs() used to assume an exact 20000us (50Hz) period when converting us ->
+// duty. LEDC can only hit a frequency the clock divider allows - at 16-bit
+// resolution the real output is often a few tens of Hz off nominal 50Hz - so the
+// actual pulse width was silently a bit off from the requested us. That slack was
+// invisible while the ESC's learned MIN/MAX endpoints were far apart, but after a
+// BLHeliSuite throttle-range recalibration to tighter endpoints it was enough to
+// push the pulse outside the ESC's accepted range, so the ESC stopped responding
+// even though a real PWM signal was still present on the pin (confirmed on scope).
+// Fix: read back the frequency LEDC actually configured via ledcReadFreq() right
+// after attach, and use that real period for every duty conversion instead of the
+// assumed 20000us. Cached per-output since pump/starter may land on slightly
+// different actual frequencies depending on which LEDC timer they get assigned.
+double escPumpPeriodUs = 20000.0;
+double escStartPeriodUs = 20000.0;
+
+double escAttach(uint8_t pin, int legacyChannel) {
+  double actualHz;
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
   (void)legacyChannel;
   ledcAttach(pin, ESC_PWM_FREQ_HZ, ESC_PWM_RES_BITS);
+  actualHz = ledcReadFreq(pin);
 #else
   ledcSetup(legacyChannel, ESC_PWM_FREQ_HZ, ESC_PWM_RES_BITS);
   ledcAttachPin(pin, legacyChannel);
+  actualHz = ledcReadFreq(legacyChannel);
 #endif
+  return (actualHz > 0.0) ? (1000000.0 / actualHz) : (1000000.0 / ESC_PWM_FREQ_HZ);
 }
 
-void escWriteUs(uint8_t pin, int legacyChannel, int us) {
+void escWriteUs(uint8_t pin, int legacyChannel, int us, double periodUs) {
   const uint32_t maxDuty = (1UL << ESC_PWM_RES_BITS) - 1;
-  uint32_t duty = (uint64_t)us * maxDuty / 20000UL; // 20ms period at 50Hz
+  uint32_t duty = (uint32_t)(((double)us * (double)maxDuty) / periodUs + 0.5);
+  if (duty > maxDuty) duty = maxDuty;
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
   ledcWrite(pin, duty);
 #else
@@ -452,6 +488,11 @@ struct RpmState {
 } rpmData;
 uint32_t lastStatusPrintMs = 0;
 bool rpmDetailMode = false;   // OFF by default: basic status line only
+// OFF by default: the rest-guard (rpmAtRestGuardCondition()) must stay active so a
+// stationary sensor cannot show phantom RPM from ambient noise. Turn this ON only
+// for a deliberate bench calibration session (spinning the sensor by hand while
+// WAITING) via "set rpmcal on", then back OFF with "set rpmcal off" when done.
+bool rpmCalMode = false;
 
 // ===== Web UI =====
 // SECURITY: anyone who joins this SoftAP can arm and start the real engine via
@@ -558,6 +599,14 @@ const char* rpmEdgeName() {
 }
 
 bool rpmAtRestGuardCondition() {
+  // Confirmed on bench: with outputs OFF and the engine truly stationary, GPIO33
+  // can still show a steady-looking ~570-620 RPM from ambient EMI/pickup - low
+  // jitter, so classifyRpmNoise() alone accepts it as CLEAN. The rest guard is the
+  // only thing that catches this (real physical rest cannot be told apart from
+  // noise by signal shape alone), so it must stay ON by default. rpmCalMode is an
+  // explicit, operator-armed opt-out for bench calibration (spinning the sensor by
+  // hand while WAITING) - see "set rpmcal on/off".
+  if (rpmCalMode) return false;
   return ecuMode == MODE_WAITING && startStage == ST_NONE &&
          startUs <= (int)RPM_REST_GUARD_MAX_US &&
          pumpUs <= (int)RPM_REST_GUARD_MAX_US &&
@@ -641,8 +690,8 @@ void applyOutputs() {
   // setup() nen cache nay khong bi lech so voi trang thai LEDC thuc te.
   static int lastPumpUs = -1;
   static int lastStartUs = -1;
-  if (pumpUs != lastPumpUs) { escWriteUs(PIN_ESC_PUMP, LEDC_CH_PUMP, pumpUs); lastPumpUs = pumpUs; }
-  if (startUs != lastStartUs) { escWriteUs(PIN_ESC_START, LEDC_CH_START, startUs); lastStartUs = startUs; }
+  if (pumpUs != lastPumpUs) { escWriteUs(PIN_ESC_PUMP, LEDC_CH_PUMP, pumpUs, escPumpPeriodUs); lastPumpUs = pumpUs; }
+  if (startUs != lastStartUs) { escWriteUs(PIN_ESC_START, LEDC_CH_START, startUs, escStartPeriodUs); lastStartUs = startUs; }
   writeActiveDigital(PIN_IGN, ignCmd, IGN_ACTIVE_HIGH);
   writeActiveDigital(PIN_VALVE_1, valve1Cmd, VALVE_ACTIVE_HIGH);
   writeActiveDigital(PIN_VALVE_2, valve2Cmd, VALVE_ACTIVE_HIGH);
@@ -727,7 +776,10 @@ bool isStage2Armed() {
   if (millis() > stage2ArmUntilMs) { stage2Armed = false; Serial.println("STAGE2 AUTO-DISARMED."); return false; }
   return true;
 }
-void armStage2() { stage2Armed = true; stage2ArmUntilMs = millis() + STAGE2_ARM_TIME_MS; addLog("ARMED 10s"); Serial.println("WARNING: STAGE2 ARMED FOR 10 SECONDS"); }
+void armStage2() {
+  if (rpmCalMode) { Serial.println("ERROR: cannot ARM while RPM_CAL_MODE is ON (rest-guard disabled). Type 'set rpmcal off' first."); return; }
+  stage2Armed = true; stage2ArmUntilMs = millis() + STAGE2_ARM_TIME_MS; addLog("ARMED 10s"); Serial.println("WARNING: STAGE2 ARMED FOR 10 SECONDS");
+}
 void stage2Off() {
   if (ecuMode == MODE_ABORTED) {
     // Outputs are already safe in ABORTED. SAFE OFF must NOT be a backdoor that
@@ -1199,13 +1251,16 @@ void updateRpm() {
   }
 
   if (rpmData.restPulseNoise) {
-    // Engine is commanded OFF. Isolated raw/accepted edges here are RPM-at-rest noise,
-    // not valid speed. Keep raw/acc/per diagnostics, but force control RPM to zero.
+    // Engine commanded OFF and rpmCalMode not armed. Confirmed on bench: ambient
+    // EMI/pickup on GPIO33 can look like a steady, low-jitter ~570-620 RPM signal
+    // even with the sensor stationary, so classifyRpmNoise() alone would accept it
+    // as CLEAN. Force RPM to zero here; raw/acc/per diagnostics are kept.
     rpmData.rpm = 0.0f;
     rpmData.signalRecent = false;
     rpmData.noise = RPM_REST_NOISE;
   } else {
-    // Outside WAITING/rest state, period RPM reacts quickly; window RPM remains as a diagnostic cross-check.
+    // Outside the rest-guard (running, or rpmCalMode armed for bench calibration):
+    // period RPM reacts quickly; window RPM remains as a diagnostic cross-check.
     if (rpmData.signalRecent && rpmData.rpmPeriod > 0.0f) rpmData.rpm = rpmData.rpmPeriod;
     else if (accepted > 0) rpmData.rpm = rpmData.rpmWindow;
     else rpmData.rpm = 0.0f;
@@ -2041,6 +2096,7 @@ bool canStartAutoIdle(String& why) {
   updateRpm();
   updateEgt();
 
+  if (rpmCalMode) { why = "RPM_CAL_MODE still ON (rest-guard disabled) - type 'set rpmcal off' first"; return false; }
   if (!cfg.autoStartEnabled) { why = "auto-start disabled; use arm2 then autostart on"; return false; }
   if (ecuMode != MODE_WAITING && ecuMode != MODE_ABORTED) { why = "ECU not in WAITING/ABORTED"; return false; }
   if (ecuMode == MODE_ABORTED && !abortAcknowledged) {
@@ -2603,6 +2659,7 @@ void printHelp() {
   Serial.println("startmanual us | startmanual off  -> hold starter PWM (no auto-off, manual page)");
   Serial.println("pumpmanual us | pumpmanual off    -> hold pump PWM + open valve1 (no auto-off, manual page)");
   Serial.println("esccal start | esccal cancel      -> ESC throttle-range calibration: PUMP+STARTER to 2000us, auto-drop to 1000us after 5s");
+  Serial.println("esctest start|pump <us>           -> self-test: jumper GPIO25/26 -> GPIO34, measures ESP32's own actual output pulse width via pulseIn() (no scope needed)");
   Serial.println("ign on | ign off                  -> hold glow (no auto-off, manual page)");
   Serial.println("manauto on | manauto off -> manual page AUTO START: requires RPM>=ignArmRpm, then mirrors ST_INTRO_FUEL/LIGHTOFF (valve1+pump+glow -> confirm real light-off -> valve2 -> close valve1 -> prove flame -> glow off)");
   Serial.println("valve1 on/off (Start solenoid, bench-only) | valve2 on/off (Main oil valve, bench-only)");
@@ -2623,6 +2680,7 @@ void printHelp() {
   Serial.println("set rpmfilter <20..5000>  -> software glitch filter in us");
   Serial.println("set rpmedge rising|falling -> RPM interrupt edge");
   Serial.println("RPM guard: WAITING+outputs OFF + any edge => RPM=0, SIG=REST_NOISE, start blocked");
+  Serial.println("set rpmcal on/off -> bench-only: disable/restore the RPM rest-guard to hand-spin the sensor for calibration (blocks arm/start while ON)");
   Serial.println("checklist | resetcheck | confirmkill | set checklist on/off");
   Serial.println("test egt|rpm_noise|ign|starter|starter_ign|valve1|valve2|pump|kill");
   Serial.println("sdstatus | sdtest | set sdlog on/off");
@@ -2650,7 +2708,7 @@ void printRpmDetail() {
   Serial.print(" | filt="); Serial.print(rpmData.filterUs); Serial.print("us");
   Serial.print(" | edge="); Serial.print(rpmEdgeName());
   Serial.print(" | RNOISE="); Serial.print(rpmNoiseName(rpmData.noise));
-  if (rpmData.restPulseNoise) Serial.print(" | REST_GUARD_BLOCK");
+  if (rpmData.restPulseNoise) Serial.print(" | REST_ACTIVITY");
   if (rpmData.rejectedEdges > 0) Serial.print(" | NOISE_FAST");
   if (rpmData.jitterPct > 30.0f && rpmData.validIntervals > 5) Serial.print(" | RPM_UNSTABLE");
   Serial.println();
@@ -2702,7 +2760,7 @@ void printStatus(bool force = false) {
   Serial.print(" | ABORT="); Serial.print(lastAbortReason);
 
   if (rpmDetailMode) {
-    if (rpmData.restPulseNoise) Serial.print(" | REST_GUARD_BLOCK");
+    if (rpmData.restPulseNoise) Serial.print(" | REST_ACTIVITY");
     if (rpmData.rejectedEdges > 0) Serial.print(" | NOISE_FAST");
     if (rpmData.jitterPct > 30.0f && rpmData.validIntervals > 5) Serial.print(" | RPM_UNSTABLE");
   }
@@ -2851,6 +2909,44 @@ void handleCommand(String cmd) {
     return;
   }
 
+  // ESC self-test: measures the ESP32's OWN actual output pulse width with
+  // pulseIn() on a loopback wire, for when a scope can't reliably read a 50Hz
+  // signal (DSO152 case). Operator must jumper a wire from PIN_ESC_START/PIN_ESC_PUMP
+  // to PIN_ESC_SELFTEST_IN (GPIO34) - in parallel with the existing ESC feed, does
+  // not disturb it. pulseIn() blocks briefly (up to ~150ms for 5 samples), only
+  // ever run manually at rest in WAITING/ABORTED.
+  if (cmd.startsWith("esctest ")) {
+    if (ecuMode != MODE_WAITING && ecuMode != MODE_ABORTED) { Serial.println("ERROR: esctest only while WAITING/ABORTED."); return; }
+    String rest = cmd.substring(String("esctest ").length()); rest.trim();
+    int sp = rest.indexOf(' ');
+    if (sp < 0) { Serial.println("ERROR: use esctest start|pump <us>"); return; }
+    String which = rest.substring(0, sp);
+    int us = rest.substring(sp + 1).toInt();
+    if (us < ESC_MIN_US || us > ESC_MAX_US) { Serial.print("ERROR: esctest us "); Serial.print(ESC_MIN_US); Serial.print(".."); Serial.println(ESC_MAX_US); return; }
+    if (which != "start" && which != "pump") { Serial.println("ERROR: use esctest start|pump <us>"); return; }
+    if (which == "start") { startUs = us; } else { pumpUs = us; }
+    applyOutputs();
+    Serial.print("ESCTEST: jumper GPIO"); Serial.print(which == "start" ? PIN_ESC_START : PIN_ESC_PUMP);
+    Serial.print(" -> GPIO"); Serial.print(PIN_ESC_SELFTEST_IN);
+    Serial.println(" now if not already done. Measuring actual pulse width (5 samples)...");
+    pinMode(PIN_ESC_SELFTEST_IN, INPUT);
+    uint32_t minUs = 0xFFFFFFFFUL, maxUs = 0, sumUs = 0; int okCount = 0;
+    for (int i = 0; i < 5; i++) {
+      uint32_t w = pulseIn(PIN_ESC_SELFTEST_IN, HIGH, 30000UL); // 30ms timeout covers the 20ms nominal period
+      if (w > 0) { okCount++; sumUs += w; if (w < minUs) minUs = w; if (w > maxUs) maxUs = w; }
+    }
+    if (okCount == 0) {
+      Serial.println("ESCTEST: NO PULSE seen on loopback pin - check jumper wire/GPIO34, or the output truly isn't toggling.");
+    } else {
+      Serial.print("ESCTEST: commanded="); Serial.print(us); Serial.print("us | measured min=");
+      Serial.print(minUs); Serial.print("us avg="); Serial.print(sumUs / (uint32_t)okCount);
+      Serial.print("us max="); Serial.print(maxUs); Serial.print("us over "); Serial.print(okCount); Serial.println("/5 samples");
+    }
+    if (which == "start") { startUs = ESC_SAFE_US; } else { pumpUs = ESC_SAFE_US; }
+    applyOutputs();
+    return;
+  }
+
   // ESC throttle-range calibration: drives both PUMP and STARTER ESCs to
   // ESC_MAX_US so the operator can (re)power them and have them learn the
   // endpoint, then this ECU auto-drops to ESC_MIN_US after ESC_CAL_MAX_HOLD_MS
@@ -2945,6 +3041,14 @@ void handleCommand(String cmd) {
     return;
   }
 
+  if (cmd == "set rpmcal on") {
+    if (ecuMode != MODE_WAITING && ecuMode != MODE_ABORTED) { Serial.println("ERROR: set rpmcal only while WAITING/ABORTED."); return; }
+    rpmCalMode = true; resetRpmStats();
+    Serial.println("RPM CAL MODE ON: rest-guard disabled, RPM readout now live even while WAITING (bench sensor calibration only - 'set rpmcal off' when done, before arming).");
+    addLog("RPM CAL MODE ON");
+    return;
+  }
+  if (cmd == "set rpmcal off") { rpmCalMode = false; resetRpmStats(); Serial.println("RPM CAL MODE OFF: rest-guard restored."); addLog("RPM CAL MODE OFF"); return; }
   if (cmd == "set checklist on") { cfg.requireChecklistForStart = true; Serial.println("Checklist interlock ON"); addLog("CHECKLIST INTERLOCK ON"); return; }
   if (cmd == "set checklist off") { if (!isStage2Armed()) { Serial.println("ERROR: type arm2 first."); return; } cfg.requireChecklistForStart = false; Serial.println("Checklist interlock OFF - DEBUG ONLY"); addLog("CHECKLIST INTERLOCK OFF"); return; }
   if (cmd == "set egtstart dry") { cfg.allowDryStartWhenEgtFault = true; Serial.println("EGT start mode = DRY: EGT fault converts startidle to dry starter/RPM test, no fuel/valves/ign."); addLog("EGT START MODE DRY"); return; }
@@ -3026,8 +3130,25 @@ void handleCommand(String cmd) {
 }
 
 void setup() {
+  // DIAGNOSTIC ONLY - not a real fix. Bench logs showed "E BOD: Brownout detector
+  // was triggered" repeatedly during the ESC arm-hold delay below, resetting the
+  // ESP32 in a loop before it ever reached loop() to process Serial commands -
+  // that reboot loop, not the ESC/PWM, is why startmanual/pumpmanual looked
+  // unresponsive. This line only silences the detector so the chip can be
+  // observed running through an under-voltage event instead of resetting; it does
+  // NOT fix the underlying supply sag. Real fix: bulk capacitor (470-1000uF
+  // low-ESR + 100nF ceramic) at the ESP32's power input, and/or separate its
+  // supply from the ESC/motor rail. Remove this line once the supply is fixed.
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
   Serial.begin(115200);
   delay(400);
+  // WiFi OFF for the entire ESC arm window below. Starting the SoftAP radio draws
+  // sudden current spikes (beacon/TX bursts) that can glitch a marginal supply/GND
+  // right when the ESC needs an uninterrupted, stable low-throttle signal to finish
+  // arming - a known ESP32/ESP8266 WiFi-vs-PWM interaction. Explicit WiFi.mode(OFF)
+  // here (not just "don't call startWebServer() yet") also covers a warm
+  // reset/reflash where the radio state persisted from a previous boot.
+  WiFi.mode(WIFI_OFF);
   pinMode(PIN_IGN, OUTPUT); pinMode(PIN_VALVE_1, OUTPUT); pinMode(PIN_VALVE_2, OUTPUT);
   pinMode(PIN_STATUS_LED, OUTPUT); writeStatusLed(false);
   pinMode(PIN_USER_BTN, INPUT_PULLUP); // external 10k pull-up is also OK; button shorts to GND
@@ -3036,8 +3157,20 @@ void setup() {
   // rpmedge/rpmfilter takes effect on this boot. Values are clamped on load.
   loadConfigFromSd();
   attachRpmInterrupt();
-  escAttach(PIN_ESC_PUMP, LEDC_CH_PUMP);
-  escAttach(PIN_ESC_START, LEDC_CH_START);
+  escPumpPeriodUs = escAttach(PIN_ESC_PUMP, LEDC_CH_PUMP);
+  escStartPeriodUs = escAttach(PIN_ESC_START, LEDC_CH_START);
+  Serial.print("ESC PWM actual period: pump="); Serial.print(escPumpPeriodUs, 2);
+  Serial.print("us start="); Serial.print(escStartPeriodUs, 2); Serial.println("us (nominal 20000us)");
+  // ESC arm sequence: write ESC_ARM_US (900us, below the calibrated MIN) directly
+  // via escWriteUs() - bypassing applyOutputs()'s ESC_MIN_US clamp, which would
+  // otherwise force this back up to 1000us - and hold it with WiFi still OFF so
+  // the ESC has an unambiguous "definitely zero" signal to arm against. Only
+  // after this window do we switch to the normal ESC_SAFE_US=1000 for operation.
+  Serial.print("ESC ARM: writing "); Serial.print(ESC_ARM_US);
+  Serial.println("us (below calibrated MIN) directly, holding 4s - listen for the ESC arm beep now...");
+  escWriteUs(PIN_ESC_PUMP, LEDC_CH_PUMP, ESC_ARM_US, escPumpPeriodUs);
+  escWriteUs(PIN_ESC_START, LEDC_CH_START, ESC_ARM_US, escStartPeriodUs);
+  delay(4000);
   forceSafeOutputs();
   lastOperatorLinkMs = millis();
   bool thermoOk = thermo.begin();
@@ -3046,7 +3179,6 @@ void setup() {
   initSdLogging();
   addLog("BOOT Test ECU V1 WebUI/TestWizard");
   Serial.println("Test ECU V1 WebUI/TestWizard booted.");
-  if (cfg.webEnabled) startWebServer();
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
   Serial.print("RPM edge = "); Serial.println(rpmEdgeName());
   Serial.print("RPM filter = "); Serial.print((uint32_t)rpmMinPulseUs); Serial.println(" us");
@@ -3055,8 +3187,9 @@ void setup() {
   Serial.println("STATUS_LED GPIO2: active-low, slow=WAITING, quick=ARMED, solid=START/RUN, fast=ABORT/TEST.");
   Serial.print("SD_LOG: "); Serial.print(sdOk ? "OK file=" : "FAIL file="); Serial.println(sdLogPath);
   Serial.println("EGT OPEN behavior: startidle => DRY START/RPM TEST only, no fuel/valves/ign. Use 'set egtstart strict' to block instead.");
-  Serial.println("Outputs safe. Auto-start disabled. Type help.");
-  delay(2500); // give ESCs safe 1000us pulse
+  Serial.println("Outputs safe (ESC arm window already completed above).");
+  if (cfg.webEnabled) startWebServer();   // WiFi AP starts LAST, only after the arm window is done
+  Serial.println("Auto-start disabled. Type help.");
 }
 
 void loop() {
