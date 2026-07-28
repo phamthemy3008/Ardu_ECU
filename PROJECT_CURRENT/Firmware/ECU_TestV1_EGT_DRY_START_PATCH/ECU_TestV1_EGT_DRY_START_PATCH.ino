@@ -51,6 +51,7 @@
 #include <Adafruit_MAX31855.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include "soc/rtc_cntl_reg.h"  // RTC_CNTL_BROWN_OUT_REG - brownout-detector diagnostic only, see setup()
 
 // Forward declarations of the state enums (full definitions are further down).
 // Required because escAttach()/escWriteUs() below are now the first functions in
@@ -3119,6 +3120,16 @@ void handleCommand(String cmd) {
 }
 
 void setup() {
+  // DIAGNOSTIC ONLY - not a real fix. Bench logs showed "E BOD: Brownout detector
+  // was triggered" repeatedly during the ESC arm-hold delay below, resetting the
+  // ESP32 in a loop before it ever reached loop() to process Serial commands -
+  // that reboot loop, not the ESC/PWM, is why startmanual/pumpmanual looked
+  // unresponsive. This line only silences the detector so the chip can be
+  // observed running through an under-voltage event instead of resetting; it does
+  // NOT fix the underlying supply sag. Real fix: bulk capacitor (470-1000uF
+  // low-ESR + 100nF ceramic) at the ESP32's power input, and/or separate its
+  // supply from the ESC/motor rail. Remove this line once the supply is fixed.
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
   Serial.begin(115200);
   delay(400);
   // WiFi OFF for the entire ESC arm window below. Starting the SoftAP radio draws
