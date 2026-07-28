@@ -87,6 +87,11 @@ enum TestResult : uint8_t;
 #define PIN_SD_SCK     14   // SPI microSD SCK/CLK
 #define PIN_SD_MOSI    23   // SPI microSD MOSI/DI
 #define PIN_SD_MISO    27   // SPI microSD MISO/DO
+// Input-only, ADC1 (no WiFi/ADC2 conflict), unused elsewhere on this board. Used
+// only by "esctest" (see handleCommand()): jumper a wire from this pin to
+// PIN_ESC_PUMP/PIN_ESC_START to measure the ESP32's own actual output pulse width
+// with pulseIn(), when a scope isn't available/practical for a 50Hz signal.
+#define PIN_ESC_SELFTEST_IN 34
 
 static const bool IGN_ACTIVE_HIGH = true;
 static const bool VALVE_ACTIVE_HIGH = true;
@@ -2643,6 +2648,7 @@ void printHelp() {
   Serial.println("startmanual us | startmanual off  -> hold starter PWM (no auto-off, manual page)");
   Serial.println("pumpmanual us | pumpmanual off    -> hold pump PWM + open valve1 (no auto-off, manual page)");
   Serial.println("esccal start | esccal cancel      -> ESC throttle-range calibration: PUMP+STARTER to 2000us, auto-drop to 1000us after 5s");
+  Serial.println("esctest start|pump <us>           -> self-test: jumper GPIO25/26 -> GPIO34, measures ESP32's own actual output pulse width via pulseIn() (no scope needed)");
   Serial.println("ign on | ign off                  -> hold glow (no auto-off, manual page)");
   Serial.println("manauto on | manauto off -> manual page AUTO START: requires RPM>=ignArmRpm, then mirrors ST_INTRO_FUEL/LIGHTOFF (valve1+pump+glow -> confirm real light-off -> valve2 -> close valve1 -> prove flame -> glow off)");
   Serial.println("valve1 on/off (Start solenoid, bench-only) | valve2 on/off (Main oil valve, bench-only)");
@@ -2889,6 +2895,44 @@ void handleCommand(String cmd) {
     pumpUs = us; fuelTargetUs = us; fuelValvesAuto(true); manualPumpOffAtMs = 0; applyOutputs();
     Serial.print("PUMP MANUAL HOLD at "); Serial.print(us); Serial.print("us ~"); Serial.print(flowFromUs(us), 1);
     Serial.println(" ml/min (no auto-off - 'pumpmanual off' to stop)");
+    return;
+  }
+
+  // ESC self-test: measures the ESP32's OWN actual output pulse width with
+  // pulseIn() on a loopback wire, for when a scope can't reliably read a 50Hz
+  // signal (DSO152 case). Operator must jumper a wire from PIN_ESC_START/PIN_ESC_PUMP
+  // to PIN_ESC_SELFTEST_IN (GPIO34) - in parallel with the existing ESC feed, does
+  // not disturb it. pulseIn() blocks briefly (up to ~150ms for 5 samples), only
+  // ever run manually at rest in WAITING/ABORTED.
+  if (cmd.startsWith("esctest ")) {
+    if (ecuMode != MODE_WAITING && ecuMode != MODE_ABORTED) { Serial.println("ERROR: esctest only while WAITING/ABORTED."); return; }
+    String rest = cmd.substring(String("esctest ").length()); rest.trim();
+    int sp = rest.indexOf(' ');
+    if (sp < 0) { Serial.println("ERROR: use esctest start|pump <us>"); return; }
+    String which = rest.substring(0, sp);
+    int us = rest.substring(sp + 1).toInt();
+    if (us < ESC_MIN_US || us > ESC_MAX_US) { Serial.print("ERROR: esctest us "); Serial.print(ESC_MIN_US); Serial.print(".."); Serial.println(ESC_MAX_US); return; }
+    if (which != "start" && which != "pump") { Serial.println("ERROR: use esctest start|pump <us>"); return; }
+    if (which == "start") { startUs = us; } else { pumpUs = us; }
+    applyOutputs();
+    Serial.print("ESCTEST: jumper GPIO"); Serial.print(which == "start" ? PIN_ESC_START : PIN_ESC_PUMP);
+    Serial.print(" -> GPIO"); Serial.print(PIN_ESC_SELFTEST_IN);
+    Serial.println(" now if not already done. Measuring actual pulse width (5 samples)...");
+    pinMode(PIN_ESC_SELFTEST_IN, INPUT);
+    uint32_t minUs = 0xFFFFFFFFUL, maxUs = 0, sumUs = 0; int okCount = 0;
+    for (int i = 0; i < 5; i++) {
+      uint32_t w = pulseIn(PIN_ESC_SELFTEST_IN, HIGH, 30000UL); // 30ms timeout covers the 20ms nominal period
+      if (w > 0) { okCount++; sumUs += w; if (w < minUs) minUs = w; if (w > maxUs) maxUs = w; }
+    }
+    if (okCount == 0) {
+      Serial.println("ESCTEST: NO PULSE seen on loopback pin - check jumper wire/GPIO34, or the output truly isn't toggling.");
+    } else {
+      Serial.print("ESCTEST: commanded="); Serial.print(us); Serial.print("us | measured min=");
+      Serial.print(minUs); Serial.print("us avg="); Serial.print(sumUs / (uint32_t)okCount);
+      Serial.print("us max="); Serial.print(maxUs); Serial.print("us over "); Serial.print(okCount); Serial.println("/5 samples");
+    }
+    if (which == "start") { startUs = ESC_SAFE_US; } else { pumpUs = ESC_SAFE_US; }
+    applyOutputs();
     return;
   }
 
