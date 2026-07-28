@@ -290,6 +290,7 @@ function gauge(arc,tid,val,max,warnFrac){
  document.getElementById(tid).textContent=Math.round(val);}
 function chip(lbl,val,cls){return '<span class="chip '+(cls||'')+'">'+lbl+': '+val+'</span>';}
 function load(){fetch('/api?act='+(document.hidden?'0':'1')).then(r=>r.json()).then(d=>{
+ if(!d||d.mode===undefined){document.getElementById('chips').innerHTML=chip('MODE','chua co du lieu tu ECU','fail');return;}
  gauge('g_rpm','g_rpm_t',d.rpmv||0,parseInt(d.cfgMaxRpm)||110000,1.05);
  gauge('g_egt','g_egt_t',d.egtv||0,parseInt(d.cfgMaxEgt)||680,0.85);
  var abn=d.abort&&d.abort!='NONE'&&d.abort!='';
@@ -305,7 +306,7 @@ function load(){fetch('/api?act='+(document.hidden?'0':'1')).then(r=>r.json()).t
  let cardsMan=[['RPM',d.rpm],['EGT',d.egt],['Starter',d.start],['Pump',d.pump],['IGN',d.ign],['Valve 1',d.v1],['Valve 2',d.v2]];
  document.getElementById('cardsMan').innerHTML=cardsMan.map(x=>'<div class="card"><div class="label">'+x[0]+'</div><div class="val">'+x[1]+'</div></div>').join('');
  txt('manStartSt',d.start);txt('manPumpSt',d.pump);txt('manIgnSt',d.ign);txt('manV1St',d.v1);txt('manV2St',d.v2);txt('manAutoSt',d.manAuto);
- document.getElementById('ck').innerHTML=d.checklist.map(x=>'<tr><td>'+x.name+'</td><td>'+pill(x.result)+'</td><td>'+x.note+'</td></tr>').join('');
+ document.getElementById('ck').innerHTML=(d.checklist||[]).map(x=>'<tr><td>'+x.name+'</td><td>'+pill(x.result)+'</td><td>'+x.note+'</td></tr>').join('');
  setInp('idlerpm',d.cfgIdleRpm);setInp('maxrpm',d.cfgMaxRpm);setInp('rpmtol',d.cfgRpmTol);setInp('maxegt',d.cfgMaxEgt);setInp('maxgrad',d.cfgMaxGrad);
  setInp('rpmfilter',d.cfgRpmFilter);
  setInp('purgeus',d.cfgPurgeUs);setInp('spinus',d.cfgSpinUs);setInp('assistus',d.cfgAssistUs);
@@ -322,6 +323,6 @@ function load(){fetch('/api?act='+(document.hidden?'0':'1')).then(r=>r.json()).t
  txt('ppr',d.cfgPpr);txt('rpmedge',d.cfgRpmEdge);txt('swEgtDry',d.swEgtDry);
  txt('swChecklist',d.swChecklist);txt('swCommWd',d.swCommWd);txt('swSdlog',d.swSdlog);
  txt('cfgOnSd',d.cfgOnSd);txt('cfgLoaded',d.cfgLoaded);
- document.getElementById('logs').innerHTML=d.logs||'';});}
+ document.getElementById('logs').innerHTML=d.logs||'';}).catch(function(){});}
 setInterval(load,700);load();
 </script></body></html>

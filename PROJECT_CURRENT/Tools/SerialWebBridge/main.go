@@ -115,12 +115,13 @@ func wireReader() {
 			if line == "" {
 				continue
 			}
-			mu.Lock()
-			lastRxMs = time.Now().UnixMilli()
-			mu.Unlock()
 			if isStatusJSON(line) {
 				mu.Lock()
 				lastStatus = line
+				// "OK" in the UI must mean a real status round-trip succeeded, not just
+				// that some byte arrived (boot banner, "Unknown command", etc.) - only a
+				// parsed apijson reply advances lastRxMs.
+				lastRxMs = time.Now().UnixMilli()
 				mu.Unlock()
 			} else {
 				addTerm(line)
