@@ -278,9 +278,9 @@
         <button class="btn" onclick="sendCmd('status')">Lấy Status</button>
       </div>
       
-      <!-- LƯU VÀ LOAD CONFIG SD (Đã sửa lệnh) -->
+      <!-- LƯU VÀ LOAD CONFIG SD -->
       <div class="btn-grid" style="margin-bottom:10px;">
-        <button class="btn btn-success" onclick="sendCmd('savecfg')">💾 Lưu SD Card</button>
+        <button class="btn btn-success" onclick="saveSdConfig()">💾 Lưu SD Card</button>
         <button class="btn" style="background-color: #6c5ce7;" onclick="sendCmd('loadcfg')">📂 Tải Config SD</button>
       </div>
 
@@ -353,12 +353,13 @@
       if ('serial' in navigator) {
         try {
           port = await navigator.serial.requestPort();
-          await port.open({ baudRate: 57600 });
-          document.getElementById('connectBtn').innerText = "✅ Đã Kết Nối (57600)";
+          await port.open({ baudRate: 115200 });
+          document.getElementById('connectBtn').innerText = "✅ Đã Kết Nối (115200)";
           document.getElementById('connectBtn').style.backgroundColor = "#00ff87";
           document.getElementById('connectBtn').style.color = "#000";
           writer = port.writable.getWriter();
           readSerialData();
+          setTimeout(() => { sendCmd('loadcfg'); }, 300);
         } catch (err) {
           alert("Lỗi kết nối Serial: " + err);
         }
@@ -442,6 +443,20 @@
       sendCmd('pump off');
     }
 
+    // --- SAVE SD CONFIG ---
+    async function saveSdConfig() {
+      let startVal = parseInt(document.getElementById('starterCustomVal').value) || 1200;
+      let pumpVal = parseInt(document.getElementById('pumpCustomVal').value) || 1200;
+      let startStep = parseInt(document.getElementById('starterStepVal').value) || 10;
+      let pumpStep = parseInt(document.getElementById('pumpStepVal').value) || 10;
+
+      await sendCmd('set startset ' + startVal);
+      await sendCmd('set pumpset ' + pumpVal);
+      await sendCmd('set startstep ' + startStep);
+      await sendCmd('set pumpstep ' + pumpStep);
+      await sendCmd('savecfg');
+    }
+
     // --- EMERGENCY STOP ---
     function stopAllEmergency() {
       document.getElementById('starterSlider').value = 1000;
@@ -478,6 +493,9 @@
               if (line.startsWith("WEB_DATA|")) {
                 parseEcuStatus(line);
                 continue; // Khong day dong nay len khung log, tiep tuc doc chuoi ke tiếp
+              }
+              if (line.startsWith("CONFIG_DATA|")) {
+                parseEcuConfig(line);
               }
               logConsole("RX <- " + line);
             }
@@ -537,7 +555,9 @@
           updateChart(currentEgt, currentRpm);
         }
       }
+    }
 
+    function parseEcuConfig(line) {
       if (line.includes("START_SET=") || line.includes("PUMP_SET=")) {
         const parts = line.split('|').map(s => s.trim());
         parts.forEach(part => {

@@ -124,6 +124,8 @@ const char* rpmEdgeName() { return (rpmEdgeMode == FALLING) ? "FALLING" : "RISIN
 
 // ---------------- Output state ----------------
 int pumpUs = ESC_SAFE_US, startUs = ESC_SAFE_US;
+int startSetUs = 1200, pumpSetUs = 1200;
+int startStepUs = 10, pumpStepUs = 10;
 bool ignCmd = false, valve1Cmd = false, valve2Cmd = false;
 
 bool allOutputsOff() {
@@ -173,7 +175,6 @@ void processSerialRx() {
 }
 
 void attachRpmInterrupt() {
-  detachInterrupt(digitalPinToInterrupt(PIN_RPM));
   attachInterrupt(digitalPinToInterrupt(PIN_RPM), rpmISR, rpmEdgeMode);
 }
 
@@ -318,43 +319,77 @@ void updateEgt() {
 // ---------------- SD config (Chuyển sang HSPI để không đụng VSPI của MAX31855) ----------------
 SPIClass sdSPI(HSPI);
 bool sdOk = false, sdMounted = false;
-static const uint32_t SD_SPI_HZ = 1000000;
 static const char* CONFIG_PATH = "/ECUCFG.TXT";
 
-bool mountSd() {
-  if (sdMounted) return sdOk;
+bool mountSd(bool force = false) {
+  if (sdMounted && sdOk && !force) return true;
+
+  sdOk = false;
+  sdMounted = false;
+
+  pinMode(PIN_SD_CS, OUTPUT);
+  digitalWrite(PIN_SD_CS, HIGH);
+
   sdSPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
-  if (!SD.begin(PIN_SD_CS, sdSPI, SD_SPI_HZ)) { sdOk = false; sdMounted = true; Serial.println("SD: begin() FAIL."); return false; }
-  if (SD.cardType() == CARD_NONE) { sdOk = false; sdMounted = true; Serial.println("SD: no card."); return false; }
-  sdOk = true; sdMounted = true; return true;
+  delay(20);
+
+  // Thử 4MHz trước, nếu không được thử 1MHz
+  if (!SD.begin(PIN_SD_CS, sdSPI, 4000000)) {
+    if (!SD.begin(PIN_SD_CS, sdSPI, 1000000)) {
+      Serial.println("SD: begin() FAIL.");
+      return false;
+    }
+  }
+
+  if (SD.cardType() == CARD_NONE) {
+    Serial.println("SD: no card inserted.");
+    return false;
+  }
+
+  sdOk = true;
+  sdMounted = true;
+  Serial.println("SD: Mounted OK.");
+  return true;
 }
 
 static int clampInt(long v, long lo, long hi) { return (int)(v < lo ? lo : (v > hi ? hi : v)); }
 
 bool saveConfigToSd() {
-  if (!mountSd()) { Serial.println("SAVECFG: no SD."); return false; }
-  SD.remove(CONFIG_PATH);
+  if (!mountSd(true)) { Serial.println("SAVECFG: no SD card."); return false; }
+  
+  if (SD.exists(CONFIG_PATH)) {
+    SD.remove(CONFIG_PATH);
+  }
+  
   File f = SD.open(CONFIG_PATH, FILE_WRITE);
-  if (!f) { Serial.println("SAVECFG: open FAIL."); return false; }
+  if (!f) { Serial.println("SAVECFG: open FILE_WRITE FAIL."); return false; }
+  
   f.println("# ECU Manual V1 sensor setup - auto-loaded on boot");
   f.print("ppr=");        f.println((int)pulsesPerRev);
   f.print("rpmfilter="); f.println((uint32_t)rpmMinPulseUs);
   f.print("rpmedge=");   f.println(rpmEdgeName());
   
-  // LƯU THÊM GIÁ TRỊ PUMP VÀ STARTER
+  // LƯU GIÁ TRỊ CẤU HÌNH BẬT BƠM & BẬT ĐỀ VÀ BƯỚC NHẢY
+  f.print("startset=");  f.println(startSetUs);
+  f.print("pumpset=");   f.println(pumpSetUs);
+  f.print("startstep="); f.println(startStepUs);
+  f.print("pumpstep=");  f.println(pumpStepUs);
   f.print("pump=");      f.println(pumpUs);
   f.print("start=");     f.println(startUs);
   
+  f.flush();
   f.close();
   Serial.println("SAVECFG: OK -> /ECUCFG.TXT");
   return true;
 }
 
 bool loadConfigFromSd() {
-  if (!mountSd()) return false;
+  if (!mountSd(true)) { Serial.println("LOADCFG: no SD card."); return false; }
   if (!SD.exists(CONFIG_PATH)) { Serial.println("LOADCFG: no /ECUCFG.TXT, using defaults."); return false; }
+  
   File f = SD.open(CONFIG_PATH, FILE_READ);
-  if (!f) { Serial.println("LOADCFG: open FAIL."); return false; }
+  if (!f) { Serial.println("LOADCFG: open FILE_READ FAIL."); return false; }
+  
   int applied = 0;
   while (f.available()) {
     String line = f.readStringUntil('\n'); line.trim();
@@ -363,6 +398,7 @@ bool loadConfigFromSd() {
     String key = line.substring(0, eq); key.trim();
     String val = line.substring(eq + 1); val.trim();
     long n = val.toInt();
+    
     if      (key == "ppr")        pulsesPerRev = (n == 2) ? 2 : 1;
     else if (key == "rpmfilter") {
       noInterrupts();
@@ -370,12 +406,14 @@ bool loadConfigFromSd() {
       interrupts();
     }
     else if (key == "rpmedge")   rpmEdgeMode = (val == "FALLING") ? FALLING : RISING;
-    
-    // TẢI THÊM GIÁ TRỊ PUMP VÀ STARTER TỪ FILE
+    else if (key == "startset")  startSetUs = clampInt(n, ESC_MIN_US, ESC_MAX_US);
+    else if (key == "pumpset")   pumpSetUs = clampInt(n, ESC_MIN_US, ESC_MAX_US);
+    else if (key == "startstep") startStepUs = clampInt(n, 1, 100);
+    else if (key == "pumpstep")  pumpStepUs = clampInt(n, 1, 100);
     else if (key == "pump")      pumpUs = clampInt(n, ESC_MIN_US, ESC_MAX_US);
     else if (key == "start")     startUs = clampInt(n, ESC_MIN_US, ESC_MAX_US);
-    
     else continue;
+    
     applied++;
   }
   f.close();
@@ -441,6 +479,15 @@ void sendWebStatus() {
   Serial.print(" | V2="); Serial.print(valve2Cmd ? 1 : 0);
   Serial.print(" | SD="); Serial.print(sdOk ? "OK" : "-");
   if (rpmCalMode) Serial.print(" | RPMCAL");
+  Serial.println();
+}
+
+void sendWebConfig() {
+  Serial.print("CONFIG_DATA|");
+  Serial.print("START_SET="); Serial.print(startSetUs);
+  Serial.print(" | PUMP_SET="); Serial.print(pumpSetUs);
+  Serial.print(" | START_STEP="); Serial.print(startStepUs);
+  Serial.print(" | PUMP_STEP="); Serial.print(pumpStepUs);
   Serial.println();
 }
 void printStatus() {
@@ -522,6 +569,26 @@ void handleCommand(String cmd) {
     if (p != 1 && p != 2) { Serial.println("ERROR: ppr 1 or 2"); return; }
     pulsesPerRev = p; resetRpmStats(); Serial.println("OK"); return;
   }
+  if (cmd.startsWith("set startset ")) {
+    int v = numberAfter(cmd, "set startset ");
+    startSetUs = clampInt(v, ESC_MIN_US, ESC_MAX_US);
+    Serial.print("startSetUs="); Serial.println(startSetUs); return;
+  }
+  if (cmd.startsWith("set pumpset ")) {
+    int v = numberAfter(cmd, "set pumpset ");
+    pumpSetUs = clampInt(v, ESC_MIN_US, ESC_MAX_US);
+    Serial.print("pumpSetUs="); Serial.println(pumpSetUs); return;
+  }
+  if (cmd.startsWith("set startstep ")) {
+    int v = numberAfter(cmd, "set startstep ");
+    startStepUs = clampInt(v, 1, 100);
+    Serial.print("startStepUs="); Serial.println(startStepUs); return;
+  }
+  if (cmd.startsWith("set pumpstep ")) {
+    int v = numberAfter(cmd, "set pumpstep ");
+    pumpStepUs = clampInt(v, 1, 100);
+    Serial.print("pumpStepUs="); Serial.println(pumpStepUs); return;
+  }
   if (cmd == "set rpmcal on") { rpmCalMode = true; resetRpmStats(); Serial.println("RPM CAL ON."); return; }
   if (cmd == "set rpmcal off") { rpmCalMode = false; resetRpmStats(); Serial.println("RPM CAL OFF."); return; }
 
@@ -561,15 +628,23 @@ void handleCommand(String cmd) {
   }
 
   if (cmd == "alloff" || cmd == "stop" || cmd == "off") { allOff(); Serial.println("ALL OUTPUTS SAFE."); return; }
-  if (cmd == "savecfg") { saveConfigToSd(); return; }
+  if (cmd == "savecfg") { 
+    if (saveConfigToSd()) {
+      sendWebStatus();
+    }
+    return; 
+  }
   if (cmd == "loadcfg") { 
     if (loadConfigFromSd()) { 
       resetRpmStats(); 
       attachRpmInterrupt(); 
       applyOutputs();      // Bắt buộc ESC chạy theo mức PWM mới load
       Serial.println("Config reloaded."); 
-      printStatus();       // Gửi status về web để UI đồng bộ lại thanh trượt
-    } 
+      sendWebConfig();     // Gửi duy nhất chuỗi CONFIG_DATA khi nhấn nút Tải Config
+      sendWebStatus();     // Gửi ngay chuỗi WEB_DATA để UI đồng bộ thanh trượt
+    } else {
+      Serial.println("Config reload failed!");
+    }
     return; 
   }
   Serial.println("Unknown command. Type help");
@@ -584,7 +659,7 @@ void setup() {
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Safe disable Brownout detector
   #endif
 
-  Serial.begin(57600);
+  Serial.begin(115200);
   delay(400);
 
   pinMode(PIN_IGN, OUTPUT); pinMode(PIN_VALVE_1, OUTPUT); pinMode(PIN_VALVE_2, OUTPUT);
