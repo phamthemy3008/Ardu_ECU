@@ -1,7 +1,7 @@
-# Ardu_ECU — Arduino ECU cho Động Cơ Phản Lực Mô Hình
+# Ardu_ECU — ECU Manual V1 (Web Serial Dashboard)
 
-ECU (Engine Control Unit) dễ tự chế tạo cho động cơ phản lực mô hình,
-chạy trên nền ESP32 với giao diện cấu hình và giám sát qua web browser.
+ECU (Engine Control Unit) cho động cơ phản lực mô hình, chạy trên nền ESP32.
+Phiên bản **Manual V1** tập trung vào điều khiển thủ công hoàn toàn qua **Web Serial API** (không dùng WiFi), đảm bảo độ tin cậy và chống nhiễu cao nhất trong môi trường công nghiệp/motor.
 
 ---
 
@@ -11,130 +11,85 @@ chạy trên nền ESP32 với giao diện cấu hình và giám sát qua web br
 Ardu_ECU/
 │
 ├── PROJECT_CURRENT/           ← Dự án đang phát triển (bắt đầu từ đây)
-│   ├── Firmware/              ← Code ESP32
-│   │   └── ECU_TestV1_EGT_DRY_START_PATCH/
-│   │       └── *.ino          ← Mở bằng Arduino IDE
-│   ├── Hardware/              ← Thiết kế mạch
-│   │   ├── RPM_Sensor_20260709.net
-│   │   └── SCH_MinijetengineECU_20260709.json
-│   └── Docs/                  ← Tài liệu kỹ thuật
-│       ├── COMMISSIONING_GUIDE.md   ← Hướng dẫn toàn diện: upload, hiệu chỉnh RPM,
-│       │                               Test Wizard, dry/wet-start, tăng throttle
-│       ├── CODE_ARCHITECTURE.md
-│       └── CODE_REVIEW_FINDINGS.md
+│   ├── Firmware/              
+│   │   └── ECU_ManualV1/
+│   │       └── ECU_ManualV1.ino   ← Code ESP32 (Mở bằng Arduino IDE)
+│   └── Tools/                 
+│       └── index.html             ← Web Dashboard (Mở bằng Chrome/Edge)
 │
-├── TEST/                      ← Firmware test riêng lẻ (bench test)
-│   └── TEST_STARTER/
-│       └── TEST_STARTER.ino   ← Test RPM sensor + starter (không cần ARM)
-│
-└── REFERENCES/                ← Tài liệu tham khảo (không dùng cho sản xuất)
-    ├── Firmware/              ← Firmware cũ: Rev9, Rev10, Rev11, Rev12
-    ├── Hardware/              ← Sơ đồ mạch cũ, ảnh linh kiện, file 3D
-    └── Documentation/         ← Manual cũ + tài liệu động cơ
+├── TEST/                      ← Firmware test riêng lẻ
+├── REFERENCES/                ← Tài liệu và mã nguồn tham khảo cũ
+└── README.md
 ```
 
 ---
 
 ## Bắt Đầu Nhanh
 
-### 1. Upload Firmware Chính
-```
-Mở: PROJECT_CURRENT/Firmware/ECU_TestV1_EGT_DRY_START_PATCH/
-          ECU_TestV1_EGT_DRY_START_PATCH.ino
-Board: ESP32 Dev Module (hoặc NodeMCU-32S)
-Baudrate Serial: 115200
-```
+### 1. Upload Firmware
+- **Thư mục**: `PROJECT_CURRENT/Firmware/ECU_ManualV1/ECU_ManualV1.ino`
+- **Board**: ESP32 Dev Module (hoặc NodeMCU-32S)
+- **Baudrate Serial**: 115200
 
-### 2. Kết Nối Web UI
-```
-WiFi: ECU_TestV1  |  Pass: admin1234
-URL:  http://192.168.4.1
-```
-
-### 3. Đọc Tài Liệu Theo Thứ Tự
-
-| Thứ tự | File | Mục đích |
-|--------|------|---------|
-| 1 | `PROJECT_CURRENT/Docs/COMMISSIONING_GUIDE.md` | Upload, hiệu chỉnh RPM, test, dry/wet-start, tăng throttle — tất cả trong 1 file |
-| 2 | `PROJECT_CURRENT/Docs/CODE_ARCHITECTURE.md` | Hiểu sâu firmware |
-| 3 | `PROJECT_CURRENT/Docs/CODE_REVIEW_FINDINGS.md` | Các lỗi đã biết và đã fix |
+### 2. Sử Dụng Web Dashboard
+- Không cần kết nối WiFi. Chỉ cần cắm cáp USB vào máy tính.
+- Mở file `PROJECT_CURRENT/Tools/index.html` bằng trình duyệt **Google Chrome** hoặc **Microsoft Edge** (hỗ trợ Web Serial API).
+- Bấm nút **"🔌 Kết Nối USB COM"** trên góc phải và chọn cổng COM của ESP32.
 
 ---
 
-## Tính Năng Firmware Hiện Tại
+## Tính Năng Nổi Bật (Version 2.4)
 
-- **EGT open dry-start**: khi thermocouple bị hở, tự động chuyển sang chế độ test RPM (starter chạy, nhiên liệu/van/lửa tắt hoàn toàn)
-- **Hybrid fuel control**: bảng hiệu chuẩn pump (us ↔ ml/min) + điều chỉnh ±1µs/bước theo RPM
-- **EGT gradient lookahead 3s**: ngăn tăng nhiên liệu nếu dự đoán EGT sẽ vượt ngưỡng
-- **RPM noise guard**: lọc nhiễu tĩnh khi tất cả output OFF (REST_GUARD)
-- **Test Wizard 9 bước**: phải pass trước khi cho phép start
-- **ACCEL_TO_IDLE timeout**: tự dừng nếu không đạt idle sau 20s
-- **Cooldown**: chạy starter làm mát sau khi dừng/abort
-- **SD logging**: CSV 2 dòng/giây
-- **Web UI**: Dashboard, Controls, Test Wizard, Event Log
-
----
-
-## Phần Cứng
-
-**Vi điều khiển**: ESP32 DevKit V1 (NodeMCU-32S)
-
-| Cảm biến / Thiết bị | Giao tiếp | Chân GPIO |
-|--------------------|----------|----------|
-| Thermocouple K (MAX31855) | SPI | CLK=18, CS=5, DO=19 |
-| RPM sensor (KMZ10A) | Digital | 33 |
-| Pump ESC | PWM | 26 |
-| Starter ESC | PWM | 25 |
-| Valve 1 | Digital | 17 |
-| Valve 2 | Digital | 16 |
-| Ignition / Glow plug | Digital | 32 |
-| User button | Digital | 22 (active LOW) |
-| Status LED | Digital | 2 (active LOW) |
-| MicroSD (SPI) | SPI | CS=13, SCK=14, MOSI=23, MISO=27 |
-
-**Mạch cảm biến RPM**: KMZ10A → INA826 (gain ×38) → LM358 (op-amp trim) → LMV393 (comparator Schmitt) → GPIO33  
-Ba trimpot: RP1 (offset), RP2 (gain), RP3 (threshold). Xem `Docs/COMMISSIONING_GUIDE.md` (Giai đoạn 2).
+- **Giao tiếp Web Serial API**: Không độ trễ mạng, điều khiển mượt mà với thanh trượt trực quan.
+- **Chống nhiễu cấp độ Công Nghiệp (CRC-8)**: 
+  - Giao thức Serial được bảo vệ bằng checksum CRC-8.
+  - Loại bỏ hoàn toàn 100% các lệnh bị lật bit/lỗi do nhiễu từ motor/ESC truyền ngược qua dây UART. 
+  - Khóa bảo vệ: Tự động từ chối mọi lệnh không có mã CRC-8 hợp lệ sau khi kết nối Web.
+- **Tách biệt Log thông minh**:
+  - **Màn hình Serial Log (RX / TX)**: Chuyên hiển thị lệnh điều khiển (`TX ->`) và phản hồi (`[RX OK]`, `[RX NOISE DROPPED]`).
+  - **Màn hình Telemetry Log (WEB_DATA)**: Chuyên hiển thị dữ liệu cảm biến theo thời gian thực.
+- **Điều khiển độc lập hoàn toàn**: 
+  - Bơm nhiên liệu (Pump) và Mô-tơ khởi động (Starter) qua thanh trượt PWM (1000µs - 2000µs).
+  - Bật/tắt Van 1, Van 2, Đánh lửa (Igniter).
+- **Lưu Cấu Hình (SD Card)**: Lưu thiết lập an toàn và bước nhảy của Pump/Starter vào thẻ nhớ để gọi lại ở lần sau.
+- **Dừng Khẩn Cấp (ALL OFF)**: Dừng mọi hoạt động ngay lập tức với 1 nút bấm.
+- **Biểu đồ Real-time**: Theo dõi RPM và EGT trực quan trên Web bằng Chart.js.
 
 ---
 
-## Firmware Test Riêng (TEST/)
+## Sơ Đồ Chân (Pinout) ESP32
 
-| Firmware | Mục đích |
-|----------|---------|
-| `TEST/TEST_STARTER/TEST_STARTER.ino` | Test RPM sensor + starter PWM: dùng `+`/`-` tăng/giảm PWM, đánh giá NOISE và STAB tự động |
-
----
-
-## Thư Viện Cần Cài (Arduino IDE)
-
-```
-Adafruit_MAX31855
-WiFi         (có sẵn trong ESP32 core)
-WebServer    (có sẵn trong ESP32 core)
-SD           (có sẵn trong ESP32 core)
-```
-
-ESC PWM dùng thẳng LEDC có sẵn trong ESP32 core (`escAttach`/`escWriteUs`) —
-**không** cần cài `ESP32Servo`. Xem `CLAUDE.md` để biết lý do (ESP32Servo từng
-gây khựng starter độc lập với nguồn điện).
+| Thiết bị | Chân GPIO | Chú thích |
+|---------|----------|----------|
+| **Cảm biến nhiệt (MAX31855)** | CLK=18, CS=5, DO=19 | Giao tiếp SPI |
+| **Cảm biến vòng tua (RPM)** | 33 | Xung vào từ cảm biến (KMZ10A hoặc Hall) |
+| **Bơm nhiên liệu (Pump)** | 26 | Tín hiệu PWM điều khiển ESC |
+| **Mô-tơ Đề (Starter)** | 25 | Tín hiệu PWM điều khiển ESC |
+| **Van nhiên liệu 1 (Valve 1)** | 17 | Tín hiệu Digital (Relay/Mosfet) |
+| **Van khởi động 2 (Valve 2)** | 16 | Tín hiệu Digital (Relay/Mosfet) |
+| **Đánh lửa (Igniter)** | 32 | Tín hiệu Digital (Relay/Mosfet) |
+| **Thẻ nhớ MicroSD** | CS=13, SCK=14, MOSI=23, MISO=27 | Giao tiếp SPI |
 
 ---
 
-## Tài Liệu Tham Khảo (REFERENCES/)
+## Khắc Phục Sự Cố (Troubleshooting)
 
-| Thư mục | Nội dung |
-|---------|---------|
-| `Firmware/Rev11/` | Firmware ổn định Rev11 (tham khảo kiến trúc) |
-| `Firmware/Rev12_TC10/` | Rev12 nhiều cảm biến (pressure, load cell) |
-| `Hardware/Schematics/` | Sơ đồ mạch Rev9–11 |
-| `Hardware/3D Printable Files/` | File STL motor mount, Bendix sleeve |
-| `Documentation/Engine_Manual_NewerModel.pdf` | Tài liệu động cơ thế hệ mới |
-| `Documentation/Luu_Luong_Bom_Thuc_Te.txt` | Lưu lượng bơm đo thực tế |
+1. **Lỗi không kết nối được Web Serial:**
+   - Trình duyệt báo `The port is already open`: Đảm bảo bạn đã đóng Serial Monitor trong Arduino IDE. Bạn có thể sử dụng nút "❌ Ngắt Kết Nối" trên Web để nhả cổng COM khi cần nạp lại code.
+   - Trình duyệt không có nút kết nối: Hãy dùng Chrome hoặc Edge bản mới nhất. Firefox/Safari hiện không hỗ trợ Web Serial API.
+
+2. **Log báo `[RX NOISE DROPPED]` liên tục:**
+   - Điều này là bình thường nếu mạch chịu nhiễu điện từ nặng (từ ESC/Motor). Firmware đã tự động chặn các lệnh lỗi này lại nhờ thuật toán CRC-8.
+   - Để cải thiện phần cứng: Dùng dây nối đất (GND) chung và to hơn, xoắn dây UART, hoặc sử dụng lõi Ferrite chống nhiễu.
+
+3. **Thông báo lỗi EGT `ERR(SHORT_VCC)` hoặc `ERR(OPEN)`:**
+   - Kiểm tra lại dây Thermocouple (MAX31855). Dây bị đứt, lỏng, hoặc chạm vỏ máy.
+
+4. **Van nhiên liệu/Đánh lửa không hoạt động:**
+   - Kiểm tra nguồn cấp riêng cho Relay/Mosfet. Chân tín hiệu từ ESP32 chỉ có 3.3V, không thể cấp nguồn trực tiếp cho cuộn dây Relay hoặc bộ tạo tia lửa.
 
 ---
 
 ## Liên Hệ & Đóng Góp
 
-- **Tác giả gốc**: Jehanzeb Khan — jehanzeb@digipak.org
-- **License**: GNU AGPLv3 — xem [LICENSE.md](LICENSE.md)
 - Mọi đóng góp đều được chào đón. Xem thêm tại [GitHub Issues](https://github.com/phamthemy3089/Ardu_ECU/issues).
