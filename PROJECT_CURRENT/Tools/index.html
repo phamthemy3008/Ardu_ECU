@@ -192,7 +192,7 @@
       width: 100%;
     }
 
-    #console {
+    #console, #webStatusConsole {
       width: 100%;
       height: 150px;
       background-color: #000;
@@ -203,6 +203,10 @@
       overflow-y: auto;
       box-sizing: border-box;
       font-size: 13px;
+    }
+
+    #webStatusConsole {
+      color: #00adb5;
     }
 
     @keyframes blinkWarning { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
@@ -224,8 +228,11 @@
   </div>
 
   <div class="header">
-    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v2.1 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
-    <button id="connectBtn" class="btn">🔌 Kết Nối USB COM</button>
+    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v2.4 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
+    <div style="display:flex; gap:10px;">
+      <button id="connectBtn" class="btn">🔌 Kết Nối USB COM</button>
+      <button id="disconnectBtn" class="btn btn-danger" style="display:none;">❌ Ngắt Kết Nối</button>
+    </div>
   </div>
 
   <div class="grid">
@@ -330,13 +337,20 @@
     </div>
   </div>
 
-  <div class="card">
-    <h3>Màn hình Serial Log (RX / TX)</h3>
-    <div id="console"></div>
+  <div class="grid">
+    <div class="card">
+      <h3>Màn hình Serial Log (RX / TX)</h3>
+      <div id="console"></div>
+    </div>
+
+    <div class="card">
+      <h3>Màn hình Telemetry Log (WEB_DATA)</h3>
+      <div id="webStatusConsole"></div>
+    </div>
   </div>
 
   <script>
-    let port, writer, reader;
+    let port, writer, reader, readableStreamClosed;
     let ignState = false, v1State = false, v2State = false;
     let ecuChart;
     let lastRxTime = Date.now();
@@ -401,6 +415,7 @@
           document.getElementById('connectBtn').innerText = "✅ Đã Kết Nối (115200)";
           document.getElementById('connectBtn').style.backgroundColor = "#00ff87";
           document.getElementById('connectBtn').style.color = "#000";
+          document.getElementById('disconnectBtn').style.display = "inline-block";
           writer = port.writable.getWriter();
           readSerialData();
           setTimeout(() => { sendCmd('loadcfg'); }, 300);
@@ -427,6 +442,39 @@
         alert("Trình duyệt không hỗ trợ Web Serial API. Hãy dùng Chrome hoặc Edge.");
       }
     });
+
+    document.getElementById('disconnectBtn').addEventListener('click', () => {
+      disconnectSerial();
+    });
+
+    async function disconnectSerial() {
+      if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
+      document.getElementById('disconnectOverlay').style.display = "none";
+
+      if (reader) {
+        try { await reader.cancel(); } catch (e) {}
+        reader = null;
+      }
+      if (readableStreamClosed) {
+        try { await readableStreamClosed.catch(() => {}); } catch (e) {}
+        readableStreamClosed = null;
+      }
+      if (writer) {
+        try { writer.releaseLock(); } catch (e) {}
+        writer = null;
+      }
+      if (port) {
+        try { await port.close(); } catch (e) {}
+        port = null;
+      }
+
+      document.getElementById('connectBtn').innerText = "🔌 Kết Nối USB COM";
+      document.getElementById('connectBtn').style.backgroundColor = "var(--accent)";
+      document.getElementById('connectBtn').style.color = "#fff";
+      document.getElementById('disconnectBtn').style.display = "none";
+      document.getElementById('ecuVersion').innerText = "Unknown";
+      logConsole("System -> Đã ngắt kết nối COM.");
+    }
 
     // CRC-8 checksum chống nhiễu (polynomial 0x07)
     function crc8(str) {
@@ -592,7 +640,7 @@
 
     async function readSerialData() {
       const textDecoder = new TextDecoderStream();
-      const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+      readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
       reader = textDecoder.readable.getReader();
 
       let lineBuffer = "";
@@ -610,7 +658,8 @@
             if (line.length > 0) {
               if (line.startsWith("WEB_DATA|")) {
                 parseEcuStatus(line);
-                continue; // Khong day dong nay len khung log, tiep tuc doc chuoi ke tiếp
+                logWebStatusConsole("RX <- " + line);
+                continue; // Khong day dong nay len khung log chinh
               }
               if (line.startsWith("CONFIG_DATA|")) {
                 parseEcuConfig(line);
@@ -734,6 +783,14 @@
       const c = document.getElementById('console');
       c.innerHTML += msg + "<br>";
       c.scrollTop = c.scrollHeight;
+    }
+
+    function logWebStatusConsole(msg) {
+      const c = document.getElementById('webStatusConsole');
+      if (c) {
+        c.innerHTML += msg + "<br>";
+        c.scrollTop = c.scrollHeight;
+      }
     }
   </script>
 </body>

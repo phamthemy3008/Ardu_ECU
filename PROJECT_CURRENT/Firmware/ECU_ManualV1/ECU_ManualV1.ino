@@ -523,7 +523,7 @@ void sendWebStatus() {
   Serial.print(" | V2="); Serial.print(valve2Cmd ? 1 : 0);
   Serial.print(" | SD="); Serial.print(sdOk ? "OK" : "-");
   if (rpmCalMode) Serial.print(" | RPMCAL");
-  Serial.print(" | VER=2.1");
+  Serial.print(" | VER=2.4");
   Serial.println();
 }
 
@@ -731,7 +731,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 2.1");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 2.4");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;
