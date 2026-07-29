@@ -32,10 +32,10 @@ static const bool IGN_ACTIVE_HIGH   = true;
 static const bool VALVE_ACTIVE_HIGH = true;
 
 // ---------------- ESC PWM (raw LEDC) ----------------
-static const int ESC_SAFE_US = 900;   
-static const int ESC_MIN_US  = 900;   
+static const int ESC_SAFE_US = 1000;   
+static const int ESC_MIN_US  = 1000;   
 static const int ESC_MAX_US  = 2000;   
-static const int ESC_ARM_US  = 900;    
+static const int ESC_ARM_US  = 1000;    
 static const int ESC_PWM_FREQ_HZ  = 50;
 static const int ESC_PWM_RES_BITS = 16;
 static const int LEDC_CH_PUMP  = 0;    
@@ -426,6 +426,23 @@ void printHelp() {
   Serial.println("savecfg | loadcfg           -> save/reload sensor setup to SD");
 }
 
+void sendWebStatus() {
+  Serial.print("WEB_DATA|");
+  Serial.print("EGT=");
+  if (egt.ok) { Serial.print(egt.c, 1); Serial.print("C"); } else { Serial.print("ERR("); Serial.print(egtFaultString(egt.fault)); Serial.print(")"); }
+  Serial.print(" | dEGT="); Serial.print(egt.gradientCps, 1);
+  Serial.print(" | RPM="); Serial.print(rpmData.rpm, 0);
+  Serial.print(" | SIG="); Serial.print(rpmData.signalRecent ? "OK" : (rpmData.noise == RPM_REST_NOISE ? "REST" : "LOST"));
+  Serial.print(" | RNOISE="); Serial.print(rpmNoiseName(rpmData.noise));
+  Serial.print(" | PUMP="); Serial.print(pumpUs); Serial.print("us");
+  Serial.print(" | START="); Serial.print(startUs); Serial.print("us");
+  Serial.print(" | IGN="); Serial.print(ignCmd ? 1 : 0);
+  Serial.print(" | V1="); Serial.print(valve1Cmd ? 1 : 0);
+  Serial.print(" | V2="); Serial.print(valve2Cmd ? 1 : 0);
+  Serial.print(" | SD="); Serial.print(sdOk ? "OK" : "-");
+  if (rpmCalMode) Serial.print(" | RPMCAL");
+  Serial.println();
+}
 void printStatus() {
   Serial.print("EGT=");
   if (egt.ok) { Serial.print(egt.c, 1); Serial.print("C"); } else { Serial.print("ERR("); Serial.print(egtFaultString(egt.fault)); Serial.print(")"); }
@@ -595,7 +612,7 @@ void setup() {
   Serial.println("ECU Manual V1 booted (Serial-only, fully manual).");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
-
+unsigned long lastStatusTime = 0;
 void loop() {
   processSerialRx();
   if (escCalActive && escCalPhaseUntilMs > 0 && millis() >= escCalPhaseUntilMs) {
@@ -612,5 +629,8 @@ void loop() {
     lastStatusPrintMs = millis();
     if (rpmDetailMode) printRpmDetail();
   }
-  printstatus();
+  if (millis() - lastStatusTime > 500) {
+    lastStatusTime = millis();
+    sendWebStatus(); 
+  }
 }

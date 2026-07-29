@@ -475,8 +475,11 @@
           for (let line of lines) {
             line = line.trim();
             if (line.length > 0) {
+              if (line.startsWith("WEB_DATA|")) {
+                parseEcuStatus(line);
+                continue; // Khong day dong nay len khung log, tiep tuc doc chuoi ke tiếp
+              }
               logConsole("RX <- " + line);
-              parseEcuStatus(line);
             }
           }
         }
@@ -502,9 +505,18 @@
             document.getElementById('rpmVal').innerHTML = valStr + " <span class='unit'>RPM</span>";
           }
           if (part.startsWith("RNOISE=")) document.getElementById('rpmNoise').innerText = part.replace("RNOISE=", "");
-          if (part.startsWith("IGN=")) setDot('dotIgn', part.endsWith("1"));
-          if (part.startsWith("V1=")) setDot('dotV1', part.endsWith("1"));
-          if (part.startsWith("V2=")) setDot('dotV2', part.endsWith("1"));
+          if (part.startsWith("IGN=")) {
+            ignState = part.endsWith("1");
+            setDot('dotIgn', ignState);
+          }
+          if (part.startsWith("V1=")) {
+            v1State = part.endsWith("1");
+            setDot('dotV1', v1State);
+          }
+          if (part.startsWith("V2=")) {
+            v2State = part.endsWith("1");
+            setDot('dotV2', v2State);
+          }
           if (part.startsWith("START=")) {
             let us = parseInt(part.replace("START=", "").replace("us", ""));
             if (!isNaN(us)) {
@@ -521,7 +533,7 @@
           }
         });
 
-        if (currentEgt !== null && currentRpm !== null) {
+        if (currentEgt !== null && currentRpm !== null && !isNaN(currentEgt) && !isNaN(currentRpm)) {
           updateChart(currentEgt, currentRpm);
         }
       }
