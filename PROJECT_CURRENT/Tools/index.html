@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -47,11 +48,25 @@
       transition: background 0.2s;
     }
 
-    .btn:hover { background-color: var(--accent-hover); }
-    .btn-danger { background-color: var(--danger); }
-    .btn-danger:hover { background-color: #d62350; }
-    .btn-success { background-color: var(--success); }
-    .btn-success:hover { background-color: #009475; }
+    .btn:hover {
+      background-color: var(--accent-hover);
+    }
+
+    .btn-danger {
+      background-color: var(--danger);
+    }
+
+    .btn-danger:hover {
+      background-color: #d62350;
+    }
+
+    .btn-success {
+      background-color: var(--success);
+    }
+
+    .btn-success:hover {
+      background-color: #009475;
+    }
 
     .grid {
       display: grid;
@@ -64,7 +79,7 @@
       background-color: var(--card-bg);
       padding: 20px;
       border-radius: 10px;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
     }
 
     .card h3 {
@@ -82,7 +97,10 @@
       margin: 10px 0;
     }
 
-    .unit { font-size: 18px; color: var(--subtext); }
+    .unit {
+      font-size: 18px;
+      color: var(--subtext);
+    }
 
     .control-group {
       display: flex;
@@ -138,7 +156,9 @@
       cursor: pointer;
     }
 
-    .btn-step:hover { background-color: var(--accent); }
+    .btn-step:hover {
+      background-color: var(--accent);
+    }
 
     .btn-grid {
       display: grid;
@@ -161,7 +181,10 @@
       margin-right: 8px;
     }
 
-    .status-dot.active { background-color: #00ff87; box-shadow: 0 0 8px #00ff87; }
+    .status-dot.active {
+      background-color: #00ff87;
+      box-shadow: 0 0 8px #00ff87;
+    }
 
     .chart-container {
       position: relative;
@@ -181,12 +204,27 @@
       box-sizing: border-box;
       font-size: 13px;
     }
+
+    @keyframes blinkWarning { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
+    #disconnectOverlay {
+      display: none;
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(255, 0, 0, 0.85);
+      z-index: 9999; color: white;
+      align-items: center; justify-content: center; flex-direction: column;
+    }
   </style>
 </head>
+
 <body>
+  
+  <div id="disconnectOverlay">
+    <h1 style="font-size: 4rem; margin-bottom: 20px; animation: blinkWarning 1s infinite; text-align: center;">⚠️ MẤT KẾT NỐI VỚI ECU ⚠️</h1>
+    <p style="font-size: 1.5rem; text-align: center;">Vui lòng kiểm tra lại cáp USB, dây tín hiệu hoặc nguồn điện!</p>
+  </div>
 
   <div class="header">
-    <h2>ECU Manual V1 - Web Dashboard</h2>
+    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v2.1 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
     <button id="connectBtn" class="btn">🔌 Kết Nối USB COM</button>
   </div>
 
@@ -225,7 +263,8 @@
       <h3>Điều khiển Mô-tơ Đề (Starter)</h3>
       <div class="control-group">
         <div class="slider-container">
-          <input type="range" id="starterSlider" min="1000" max="2000" value="1000" oninput="updateStarterFromSlider(this.value)">
+          <input type="range" id="starterSlider" min="1000" max="2000" value="1000"
+            oninput="updateStarterFromSlider(this.value)">
           <span id="starterUsVal" style="width: 65px; font-weight:bold; color:var(--accent);">1000 µs</span>
         </div>
 
@@ -237,7 +276,8 @@
         </div>
 
         <div class="custom-preset-group">
-          <input type="number" id="starterCustomVal" class="num-input" value="1200" min="1000" max="2000" style="flex:1;">
+          <input type="number" id="starterCustomVal" class="num-input" value="1200" min="1000" max="2000"
+            style="flex:1;">
           <button class="btn" style="flex:1;" onclick="startStarterCustom()">Bật Đề</button>
           <button class="btn btn-danger" style="flex:1;" onclick="stopStarter()">Tắt Đề</button>
         </div>
@@ -249,7 +289,8 @@
       <h3>Điều khiển Bơm nhiên liệu (Pump)</h3>
       <div class="control-group">
         <div class="slider-container">
-          <input type="range" id="pumpSlider" min="1000" max="2000" value="1000" oninput="updatePumpFromSlider(this.value)">
+          <input type="range" id="pumpSlider" min="1000" max="2000" value="1000"
+            oninput="updatePumpFromSlider(this.value)">
           <span id="pumpUsVal" style="width: 65px; font-weight:bold; color:var(--accent);">1000 µs</span>
         </div>
 
@@ -277,14 +318,15 @@
         <button class="btn" onclick="toggleCmd('valve2')">Toggle VALVE 2</button>
         <button class="btn" onclick="sendCmd('status')">Lấy Status</button>
       </div>
-      
+
       <!-- LƯU VÀ LOAD CONFIG SD -->
       <div class="btn-grid" style="margin-bottom:10px;">
         <button class="btn btn-success" onclick="saveSdConfig()">💾 Lưu SD Card</button>
         <button class="btn" style="background-color: #6c5ce7;" onclick="sendCmd('loadcfg')">📂 Tải Config SD</button>
       </div>
 
-      <button class="btn btn-danger" style="width:100%; padding: 12px; font-size:15px;" onclick="stopAllEmergency()">🛑 ALL OFF (STOP KHẨN CẤP)</button>
+      <button class="btn btn-danger" style="width:100%; padding: 12px; font-size:15px;" onclick="stopAllEmergency()">🛑
+        ALL OFF (STOP KHẨN CẤP)</button>
     </div>
   </div>
 
@@ -297,6 +339,8 @@
     let port, writer, reader;
     let ignState = false, v1State = false, v2State = false;
     let ecuChart;
+    let lastRxTime = Date.now();
+    let watchdogTimer = null;
     const MAX_DATA_POINTS = 30;
 
     window.addEventListener('DOMContentLoaded', () => {
@@ -360,6 +404,22 @@
           writer = port.writable.getWriter();
           readSerialData();
           setTimeout(() => { sendCmd('loadcfg'); }, 300);
+
+          lastRxTime = Date.now();
+          if (watchdogTimer) clearInterval(watchdogTimer);
+          watchdogTimer = setInterval(() => {
+            if (Date.now() - lastRxTime > 2000) {
+              document.getElementById('connectBtn').innerText = "❌ Mất Kết Nối!";
+              document.getElementById('connectBtn').style.backgroundColor = "#ff2e63";
+              document.getElementById('connectBtn').style.color = "#fff";
+              document.getElementById('disconnectOverlay').style.display = "flex";
+            } else {
+              document.getElementById('connectBtn').innerText = "✅ Đã Kết Nối (115200)";
+              document.getElementById('connectBtn').style.backgroundColor = "#00ff87";
+              document.getElementById('connectBtn').style.color = "#000";
+              document.getElementById('disconnectOverlay').style.display = "none";
+            }
+          }, 1000);
         } catch (err) {
           alert("Lỗi kết nối Serial: " + err);
         }
@@ -368,19 +428,49 @@
       }
     });
 
-    // Cập nhật hàm sendCmd để loại bỏ khoảng trắng dư thừa
+    // CRC-8 checksum chống nhiễu (polynomial 0x07)
+    function crc8(str) {
+      let crc = 0;
+      for (let i = 0; i < str.length; i++) {
+        crc ^= str.charCodeAt(i);
+        for (let j = 0; j < 8; j++) {
+          if (crc & 0x80) crc = ((crc << 1) ^ 0x07) & 0xFF;
+          else crc = (crc << 1) & 0xFF;
+        }
+      }
+      return crc;
+    }
+
     async function sendCmd(cmd) {
       if (!writer) { alert("Chưa kết nối COM!"); return; }
       const textEncoder = new TextEncoder();
-      const cleanCmd = cmd.trim() + "\n";
-      await writer.write(textEncoder.encode(cleanCmd));
+      const cleanCmd = cmd.trim();
+      const checksumHex = crc8(cleanCmd).toString(16).toUpperCase().padStart(2, '0');
+      await writer.write(textEncoder.encode(cleanCmd + '#' + checksumHex + '\n'));
       logConsole("TX -> " + cmd);
     }
 
-    // --- STARTER LOGIC ---
+    let lastStarterSendTime = 0;
+    let starterThrottleTimer = null;
     function updateStarterFromSlider(val) {
       document.getElementById('starterUsVal').innerText = val + " µs";
-      sendCmd('starter ' + val);
+      const now = Date.now();
+      
+      if (starterThrottleTimer) {
+        clearTimeout(starterThrottleTimer);
+        starterThrottleTimer = null;
+      }
+
+      if (now - lastStarterSendTime > 100) {
+        sendCmd('starter ' + val);
+        lastStarterSendTime = now;
+      } else {
+        starterThrottleTimer = setTimeout(() => {
+          sendCmd('starter ' + val);
+          lastStarterSendTime = Date.now();
+          starterThrottleTimer = null;
+        }, 100);
+      }
     }
 
     function adjustStarter(direction) {
@@ -405,15 +495,33 @@
     }
 
     function stopStarter() {
+      if (starterThrottleTimer) clearTimeout(starterThrottleTimer);
       document.getElementById('starterSlider').value = 1000;
       document.getElementById('starterUsVal').innerText = "1000 µs";
       sendCmd('starter off');
     }
 
-    // --- PUMP LOGIC ---
+    let lastPumpSendTime = 0;
+    let pumpThrottleTimer = null;
     function updatePumpFromSlider(val) {
       document.getElementById('pumpUsVal').innerText = val + " µs";
-      sendCmd('pump ' + val);
+      const now = Date.now();
+      
+      if (pumpThrottleTimer) {
+        clearTimeout(pumpThrottleTimer);
+        pumpThrottleTimer = null;
+      }
+
+      if (now - lastPumpSendTime > 100) {
+        sendCmd('pump ' + val);
+        lastPumpSendTime = now;
+      } else {
+        pumpThrottleTimer = setTimeout(() => {
+          sendCmd('pump ' + val);
+          lastPumpSendTime = Date.now();
+          pumpThrottleTimer = null;
+        }, 100);
+      }
     }
 
     function adjustPump(direction) {
@@ -438,6 +546,7 @@
     }
 
     function stopPump() {
+      if (pumpThrottleTimer) clearTimeout(pumpThrottleTimer);
       document.getElementById('pumpSlider').value = 1000;
       document.getElementById('pumpUsVal').innerText = "1000 µs";
       sendCmd('pump off');
@@ -459,17 +568,26 @@
 
     // --- EMERGENCY STOP ---
     function stopAllEmergency() {
+      if (starterThrottleTimer) clearTimeout(starterThrottleTimer);
+      if (pumpThrottleTimer) clearTimeout(pumpThrottleTimer);
       document.getElementById('starterSlider').value = 1000;
       document.getElementById('starterUsVal').innerText = "1000 µs";
       document.getElementById('pumpSlider').value = 1000;
       document.getElementById('pumpUsVal').innerText = "1000 µs";
+      ignState = false; v1State = false; v2State = false;
+      setDot('dotIgn', false); setDot('dotV1', false); setDot('dotV2', false);
+      lastStarterSendTime = Date.now();
+      lastPumpSendTime = Date.now();
+      if (typeof lastToggleTime !== 'undefined') lastToggleTime = Date.now();
       sendCmd('alloff');
     }
 
+    let lastToggleTime = 0;
     function toggleCmd(type) {
-      if (type === 'ign') { ignState = !ignState; sendCmd(ignState ? 'ign on' : 'ign off'); }
-      if (type === 'valve1') { v1State = !v1State; sendCmd(v1State ? 'valve1 on' : 'valve1 off'); }
-      if (type === 'valve2') { v2State = !v2State; sendCmd(v2State ? 'valve2 on' : 'valve2 off'); }
+      lastToggleTime = Date.now();
+      if (type === 'ign') { ignState = !ignState; sendCmd(ignState ? 'ign on' : 'ign off'); setDot('dotIgn', ignState); }
+      if (type === 'valve1') { v1State = !v1State; sendCmd(v1State ? 'valve1 on' : 'valve1 off'); setDot('dotV1', v1State); }
+      if (type === 'valve2') { v2State = !v2State; sendCmd(v2State ? 'valve2 on' : 'valve2 off'); setDot('dotV2', v2State); }
     }
 
     async function readSerialData() {
@@ -486,7 +604,7 @@
           lineBuffer += value;
           let lines = lineBuffer.split('\n');
           lineBuffer = lines.pop();
-          
+
           for (let line of lines) {
             line = line.trim();
             if (line.length > 0) {
@@ -505,6 +623,7 @@
     }
 
     function parseEcuStatus(line) {
+      lastRxTime = Date.now();
       if (line.includes("EGT=") && line.includes("RPM=")) {
         const parts = line.split('|').map(s => s.trim());
         let currentEgt = null;
@@ -524,30 +643,39 @@
           }
           if (part.startsWith("RNOISE=")) document.getElementById('rpmNoise').innerText = part.replace("RNOISE=", "");
           if (part.startsWith("IGN=")) {
-            ignState = part.endsWith("1");
-            setDot('dotIgn', ignState);
+            if (Date.now() - lastToggleTime > 1000) {
+              ignState = part.endsWith("1");
+              setDot('dotIgn', ignState);
+            }
           }
           if (part.startsWith("V1=")) {
-            v1State = part.endsWith("1");
-            setDot('dotV1', v1State);
+            if (Date.now() - lastToggleTime > 1000) {
+              v1State = part.endsWith("1");
+              setDot('dotV1', v1State);
+            }
           }
           if (part.startsWith("V2=")) {
-            v2State = part.endsWith("1");
-            setDot('dotV2', v2State);
+            if (Date.now() - lastToggleTime > 1000) {
+              v2State = part.endsWith("1");
+              setDot('dotV2', v2State);
+            }
           }
           if (part.startsWith("START=")) {
             let us = parseInt(part.replace("START=", "").replace("us", ""));
-            if (!isNaN(us)) {
+            if (!isNaN(us) && (Date.now() - lastStarterSendTime > 1000)) {
               document.getElementById('starterSlider').value = us;
               document.getElementById('starterUsVal').innerText = us + " µs";
             }
           }
           if (part.startsWith("PUMP=")) {
             let us = parseInt(part.replace("PUMP=", "").replace("us", ""));
-            if (!isNaN(us)) {
+            if (!isNaN(us) && (Date.now() - lastPumpSendTime > 1000)) {
               document.getElementById('pumpSlider').value = us;
               document.getElementById('pumpUsVal').innerText = us + " µs";
             }
+          }
+          if (part.startsWith("VER=")) {
+            document.getElementById('ecuVersion').innerText = part.replace("VER=", "");
           }
         });
 
@@ -609,4 +737,5 @@
     }
   </script>
 </body>
+
 </html>

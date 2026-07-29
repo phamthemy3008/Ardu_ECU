@@ -11,6 +11,7 @@
 #include <Adafruit_MAX31855.h>
 #include "soc/rtc_cntl_reg.h"
 #include "soc/soc.h"
+#include "driver/gpio.h"
 
 // ---------------- Pins ----------------
 #define PIN_EGT_CLK    18
@@ -149,9 +150,29 @@ RpmNoiseLevel classifyRpmNoise(bool recent, uint32_t raw, uint32_t accepted, uin
 }
 
 String serialCmdBuf = "";
+unsigned long lastSerialRxTime = 0;
+bool webChecksumMode = false; // Locks on after first valid checksum from Web
+
+// CRC-8 (polynomial 0x07) - industry standard error detection
+uint8_t crc8(const char* data, unsigned int len) {
+  uint8_t crc = 0;
+  for (unsigned int i = 0; i < len; i++) {
+    crc ^= (uint8_t)data[i];
+    for (int j = 0; j < 8; j++) {
+      if (crc & 0x80) crc = (crc << 1) ^ 0x07;
+      else crc = crc << 1;
+    }
+  }
+  return crc;
+}
 
 void processSerialRx() {
+  if (serialCmdBuf.length() > 0 && millis() - lastSerialRxTime > 50) {
+    serialCmdBuf = "";
+  }
+
   while (Serial.available()) {
+    lastSerialRxTime = millis();
     char c = (char)Serial.read();
 
     if ((c < 32 || c > 126) && c != '\n' && c != '\r') {
@@ -160,10 +181,33 @@ void processSerialRx() {
 
     if (c == '\n') {
       if (serialCmdBuf.length() > 0) {
-        Serial.print("-> [RX Received]: ");
-        Serial.println(serialCmdBuf);
-
-        handleCommand(serialCmdBuf);
+        // Check for checksum: command#XX
+        int hashIdx = serialCmdBuf.lastIndexOf('#');
+        if (hashIdx > 0 && (serialCmdBuf.length() - hashIdx) == 3) {
+          // Has checksum format - validate CRC-8
+          String cmdPart = serialCmdBuf.substring(0, hashIdx);
+          String chkPart = serialCmdBuf.substring(hashIdx + 1);
+          uint8_t expected = (uint8_t)strtol(chkPart.c_str(), NULL, 16);
+          uint8_t actual = crc8(cmdPart.c_str(), cmdPart.length());
+          if (actual == expected) {
+            webChecksumMode = true;
+            Serial.print("-> [RX OK]: ");
+            Serial.println(cmdPart);
+            handleCommand(cmdPart);
+          } else {
+            Serial.print("-> [RX NOISE DROPPED]: ");
+            Serial.println(serialCmdBuf);
+          }
+        } else if (webChecksumMode) {
+          // In checksum mode but # was corrupted or missing - reject
+          Serial.print("-> [RX NOISE DROPPED]: ");
+          Serial.println(serialCmdBuf);
+        } else {
+          // No checksum mode yet (manual Serial Monitor) - accept as-is
+          Serial.print("-> [RX Received]: ");
+          Serial.println(serialCmdBuf);
+          handleCommand(serialCmdBuf);
+        }
         serialCmdBuf = "";
       }
     } else if (c != '\r') {
@@ -479,6 +523,7 @@ void sendWebStatus() {
   Serial.print(" | V2="); Serial.print(valve2Cmd ? 1 : 0);
   Serial.print(" | SD="); Serial.print(sdOk ? "OK" : "-");
   if (rpmCalMode) Serial.print(" | RPMCAL");
+  Serial.print(" | VER=2.1");
   Serial.println();
 }
 
@@ -640,8 +685,8 @@ void handleCommand(String cmd) {
       attachRpmInterrupt(); 
       applyOutputs();      // Bắt buộc ESC chạy theo mức PWM mới load
       Serial.println("Config reloaded."); 
-      sendWebConfig();     // Gửi duy nhất chuỗi CONFIG_DATA khi nhấn nút Tải Config
-      sendWebStatus();     // Gửi ngay chuỗi WEB_DATA để UI đồng bộ thanh trượt
+      sendWebConfig();     // Gửi CONFIG_DATA để cập nhật Text Box
+      sendWebStatus();     // Gửi WEB_DATA để UI đồng bộ thanh trượt
     } else {
       Serial.println("Config reload failed!");
     }
@@ -668,6 +713,8 @@ void setup() {
   digitalWrite(PIN_VALVE_1, VALVE_ACTIVE_HIGH ? LOW : HIGH);
   digitalWrite(PIN_VALVE_2, VALVE_ACTIVE_HIGH ? LOW : HIGH);
 
+  gpio_install_isr_service(0); // Cài đặt ISR service trước để tránh lỗi khi gọi attachInterrupt nhiều lần
+
   mountSd();
   loadConfigFromSd();
   attachRpmInterrupt();
@@ -684,7 +731,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual).");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 2.1");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;
