@@ -81,7 +81,7 @@ void escWriteUs(uint8_t pin, int legacyChannel, int us, double periodUs) {
 static const uint32_t RPM_SAMPLE_MS         = 100;
 static const uint32_t RPM_SIGNAL_TIMEOUT_MS = 1000;
 
-volatile uint32_t rpmMinPulseUs = 120;
+volatile uint32_t rpmMinPulseUs = 330;
 int rpmEdgeMode = RISING;
 
 volatile uint32_t isrLastRawEdgeUs = 0;
@@ -97,7 +97,7 @@ volatile uint64_t isrSumDtUs = 0;
 volatile uint64_t isrSumDtSqUs = 0;
 
 struct RpmState {
-  float rpm = 0.0f, rpmWindow = 0.0f, rpmPeriod = 0.0f;
+  float rpm = 0.0f, rpmWindow = 0.0f, rpmPeriod = 0.0f, rpmFiltered = 0.0f;
   float avgIntervalUs = 0.0f, jitterPct = 0.0f, rejectPct = 0.0f, rpmDiffPct = 0.0f;
   bool signalRecent = false, restGuardActive = false, restPulseNoise = false;
   uint32_t acceptedWindow = 0, rawEdges = 0, rejectedEdges = 0, validIntervals = 0;
@@ -234,7 +234,11 @@ void IRAM_ATTR rpmISR() {
   if (isrLastAcceptedPulseUs != 0) {
     uint32_t dtAcceptedUs = nowUs - isrLastAcceptedPulseUs;
     uint32_t maskUs = filterUs;
-    if (isrLastPeriodUs > 0 && (isrLastPeriodUs >> 1) > maskUs) maskUs = (isrLastPeriodUs >> 1);
+    if (isrLastPeriodUs > 0 && isrLastPeriodUs <= 100000UL) {
+      uint32_t dynMaskUs = (isrLastPeriodUs * 2UL) / 3UL; // 66.7% of previous period (active only when RPM > 600)
+      if (dynMaskUs > 50000UL) dynMaskUs = 50000UL;
+      if (dynMaskUs > maskUs) maskUs = dynMaskUs;
+    }
     if (dtAcceptedUs < maskUs) { isrRejectedEdges++; return; }
     isrLastPeriodUs = dtAcceptedUs;
     isrAcceptedIntervals++;
@@ -314,13 +318,50 @@ void updateRpm() {
   }
 
   if (rpmData.restPulseNoise) {
-    rpmData.rpm = 0.0f; rpmData.signalRecent = false; rpmData.noise = RPM_REST_NOISE;
+    rpmData.rpm = 0.0f; rpmData.rpmFiltered = 0.0f; rpmData.signalRecent = false; rpmData.noise = RPM_REST_NOISE;
   } else {
-    if (rpmData.signalRecent && rpmData.rpmPeriod > 0.0f) rpmData.rpm = rpmData.rpmPeriod;
-    else if (accepted > 0) rpmData.rpm = rpmData.rpmWindow;
-    else rpmData.rpm = 0.0f;
     rpmData.noise = classifyRpmNoise(rpmData.signalRecent, raw, accepted, rejected,
                                      rpmData.rejectPct, rpmData.jitterPct, rpmData.rpmDiffPct, validN);
+    // Outlier Spike Rejection: Starter Outlier Guard (max 20k RPM during cranking) & Jet Engine Max limit (160k RPM)
+    float maxAllowedRpm = (startUs > ESC_SAFE_US && rpmData.rpmWindow < 15000.0f) ? 20000.0f : 160000.0f;
+
+    // Tính RPM trung bình vi-mô từ tổng thời gian các xung hợp lệ trong 100ms (Microsecond Average RPM)
+    float rawRpmCandidate = 0.0f;
+    if (validN > 0 && rpmData.avgIntervalUs > 0.0f) {
+      rawRpmCandidate = 60000000.0f / (rpmData.avgIntervalUs * (float)pulsesPerRev);
+    } else if (rpmData.signalRecent && rpmData.rpmPeriod > 0.0f) {
+      rawRpmCandidate = rpmData.rpmPeriod;
+    } else if (accepted > 0) {
+      rawRpmCandidate = rpmData.rpmWindow;
+    }
+
+    if (rawRpmCandidate > maxAllowedRpm) {
+      rawRpmCandidate = (rpmData.rpmWindow > 0.0f && rpmData.rpmWindow <= maxAllowedRpm) ? rpmData.rpmWindow : 0.0f;
+    }
+
+    // Làm mượt bằng bộ lọc LPF EMA (alpha = 0.40) triệt tiêu hoàn toàn dao động rác
+    if (rpmData.rpm == 0.0f && rawRpmCandidate > 0.0f) {
+      rpmData.rpm = rawRpmCandidate;
+    } else {
+      const float alpha = 0.40f;
+      rpmData.rpm = (alpha * rawRpmCandidate) + ((1.0f - alpha) * rpmData.rpm);
+    }
+    if (rawRpmCandidate == 0.0f && rpmData.rpm < 50.0f) {
+      rpmData.rpm = 0.0f;
+    }
+
+    // --- BIẾN RPM LỌC NHIỄU AN TOÀN CHO TRIGGER (rpmFiltered) ---
+    float rawTriggerTarget = (rpmData.rpm <= maxAllowedRpm) ? rpmData.rpm : 0.0f;
+
+    if (rpmData.rpmFiltered == 0.0f && rawTriggerTarget > 0.0f) {
+      rpmData.rpmFiltered = rawTriggerTarget;
+    } else {
+      const float alphaTrigger = 0.25f; // Lọc mượt hơn nữa cho Trigger
+      rpmData.rpmFiltered = (alphaTrigger * rawTriggerTarget) + ((1.0f - alphaTrigger) * rpmData.rpmFiltered);
+    }
+    if (rawTriggerTarget == 0.0f || rpmData.rpm == 0.0f) {
+      rpmData.rpmFiltered = 0.0f;
+    }
   }
 }
 
@@ -330,7 +371,7 @@ Adafruit_MAX31855 thermo(PIN_EGT_CLK, PIN_EGT_CS, PIN_EGT_DO);
 
 struct EgtState {
   bool ok = false;
-  float c = NAN, prevC = NAN, gradientCps = 0.0f;
+  float c = NAN, prevC = NAN, gradientCps = 0.0f, cProjected3s = NAN;
   uint8_t fault = 0;
   uint32_t lastReadMs = 0, lastGoodMs = 0;
 } egt;
@@ -355,8 +396,14 @@ void updateEgt() {
   }
   if (egt.ok && !isnan(egt.c)) {
     float dtS = (float)(nowMs - egt.lastGoodMs) / 1000.0f;
-    if (dtS > 0.05f) egt.gradientCps = ((float)tc - egt.c) / dtS;
-  } else egt.gradientCps = 0;
+    if (dtS > 0.05f) {
+      egt.gradientCps = ((float)tc - egt.c) / dtS;
+      egt.cProjected3s = (float)tc + (egt.gradientCps * 3.0f);
+    }
+  } else {
+    egt.gradientCps = 0;
+    egt.cProjected3s = NAN;
+  }
   egt.prevC = egt.c; egt.c = (float)tc; egt.ok = true; egt.fault = 0; egt.lastGoodMs = nowMs;
 }
 
@@ -483,7 +530,11 @@ void allOff() {
   applyOutputs();
 }
 
-// ---------------- ESC throttle-range calibration ----------------
+// ---------------- Purge & Prime Timers ----------------
+bool purgeActive = false;
+uint32_t purgeUntilMs = 0;
+bool primeActive = false;
+uint32_t primeUntilMs = 0;
 bool escCalActive = false;
 uint32_t escCalPhaseUntilMs = 0;
 static const uint32_t ESC_CAL_MAX_HOLD_MS = 5000;
@@ -513,7 +564,9 @@ void sendWebStatus() {
   Serial.print("EGT=");
   if (egt.ok) { Serial.print(egt.c, 1); Serial.print("C"); } else { Serial.print("ERR("); Serial.print(egtFaultString(egt.fault)); Serial.print(")"); }
   Serial.print(" | dEGT="); Serial.print(egt.gradientCps, 1);
+  Serial.print(" | PEGT="); if (!isnan(egt.cProjected3s)) { Serial.print(egt.cProjected3s, 1); } else { Serial.print("-"); }
   Serial.print(" | RPM="); Serial.print(rpmData.rpm, 0);
+  Serial.print(" | FRPM="); Serial.print(rpmData.rpmFiltered, 0);
   Serial.print(" | SIG="); Serial.print(rpmData.signalRecent ? "OK" : (rpmData.noise == RPM_REST_NOISE ? "REST" : "LOST"));
   Serial.print(" | RNOISE="); Serial.print(rpmNoiseName(rpmData.noise));
   Serial.print(" | PUMP="); Serial.print(pumpUs); Serial.print("us");
@@ -523,7 +576,7 @@ void sendWebStatus() {
   Serial.print(" | V2="); Serial.print(valve2Cmd ? 1 : 0);
   Serial.print(" | SD="); Serial.print(sdOk ? "OK" : "-");
   if (rpmCalMode) Serial.print(" | RPMCAL");
-  Serial.print(" | VER=2.4");
+  Serial.print(" | VER=3.9");
   Serial.println();
 }
 
@@ -554,6 +607,7 @@ void printStatus() {
 
 void printRpmDetail() {
   Serial.print("RPM_DETAIL= RPM="); Serial.print(rpmData.rpm, 0);
+  Serial.print(" fRPM="); Serial.print(rpmData.rpmFiltered, 0);
   Serial.print(" RPMw="); Serial.print(rpmData.rpmWindow, 0);
   Serial.print(" RPMp="); Serial.print(rpmData.rpmPeriod, 0);
   Serial.print(" | pin="); Serial.print(rpmData.pinLevel);
@@ -672,7 +726,37 @@ void handleCommand(String cmd) {
     Serial.println("ESC CAL cancelled."); return;
   }
 
-  if (cmd == "alloff" || cmd == "stop" || cmd == "off") { allOff(); Serial.println("ALL OUTPUTS SAFE."); return; }
+  if (cmd.startsWith("purge")) {
+    int durationSec = 3;
+    String arg = cmd.substring(String("purge").length()); arg.trim();
+    if (arg.length() > 0) durationSec = arg.toInt();
+    if (durationSec < 1 || durationSec > 10) durationSec = 3;
+    purgeActive = true;
+    purgeUntilMs = millis() + (durationSec * 1000UL);
+    startUs = startSetUs > 1000 ? startSetUs : 1250;
+    applyOutputs();
+    Serial.print("PURGE: Running Starter at "); Serial.print(startUs); Serial.print("us for "); Serial.print(durationSec); Serial.println("s");
+    return;
+  }
+
+  if (cmd.startsWith("prime")) {
+    int durationSec = 3;
+    String arg = cmd.substring(String("prime").length()); arg.trim();
+    if (arg.length() > 0) durationSec = arg.toInt();
+    if (durationSec < 1 || durationSec > 10) durationSec = 3;
+    primeActive = true;
+    primeUntilMs = millis() + (durationSec * 1000UL);
+    pumpUs = pumpSetUs > 1000 ? pumpSetUs : 1200;
+    valve1Cmd = true;
+    applyOutputs();
+    Serial.print("PRIME: Running Pump at "); Serial.print(pumpUs); Serial.print("us with Valve1 for "); Serial.print(durationSec); Serial.println("s");
+    return;
+  }
+
+  if (cmd == "alloff" || cmd == "stop" || cmd == "off") { 
+    purgeActive = false; primeActive = false;
+    allOff(); Serial.println("ALL OUTPUTS SAFE."); return; 
+  }
   if (cmd == "savecfg") { 
     if (saveConfigToSd()) {
       sendWebStatus();
@@ -731,7 +815,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 2.4");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 3.9");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;
@@ -741,6 +825,19 @@ void loop() {
     startUs = ESC_MIN_US; pumpUs = ESC_MIN_US; applyOutputs();
     escCalPhaseUntilMs = 0; escCalActive = false;
     Serial.println("ESC CAL: dropped to MIN 1000us (done).");
+  }
+  if (purgeActive && millis() >= purgeUntilMs) {
+    purgeActive = false;
+    startUs = ESC_SAFE_US;
+    applyOutputs();
+    Serial.println("PURGE: Completed (Starter OFF).");
+  }
+  if (primeActive && millis() >= primeUntilMs) {
+    primeActive = false;
+    pumpUs = ESC_SAFE_US;
+    valve1Cmd = false;
+    applyOutputs();
+    Serial.println("PRIME: Completed (Pump & Valve OFF).");
   }
 
   updateRpm();

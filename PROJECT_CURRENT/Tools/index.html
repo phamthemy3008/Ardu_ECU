@@ -228,31 +228,10 @@
   </div>
 
   <div class="header">
-    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v2.4 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
+    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v3.9 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
     <div style="display:flex; gap:10px;">
       <button id="connectBtn" class="btn">🔌 Kết Nối USB COM</button>
       <button id="disconnectBtn" class="btn btn-danger" style="display:none;">❌ Ngắt Kết Nối</button>
-    </div>
-  </div>
-
-  <div class="grid">
-    <div class="card">
-      <h3>Vòng tua Động cơ (RPM)</h3>
-      <div class="value-display" id="rpmVal">0 <span class="unit">RPM</span></div>
-      <div>Trạng thái: <span id="rpmNoise" style="font-weight:bold; color:var(--accent);">--</span></div>
-    </div>
-
-    <div class="card">
-      <h3>Nhiệt độ Khí xả (EGT)</h3>
-      <div class="value-display" id="egtVal">-- <span class="unit">°C</span></div>
-      <div>dEGT: <span id="degtVal">0.0</span> °C/s</div>
-    </div>
-
-    <div class="card">
-      <h3>Trạng thái Output</h3>
-      <p><span class="status-dot" id="dotIgn"></span> Đánh lửa (IGN)</p>
-      <p><span class="status-dot" id="dotV1"></span> Van 1 (VALVE 1)</p>
-      <p><span class="status-dot" id="dotV2"></span> Van 2 (VALVE 2)</p>
     </div>
   </div>
 
@@ -265,6 +244,30 @@
   </div>
 
   <div class="grid">
+    <div class="card">
+      <h3>Vòng tua Động cơ (RPM)</h3>
+      <div class="value-display" id="rpmVal">0 <span class="unit">RPM</span></div>
+      <div style="margin-top: 4px; font-size: 13px; color: var(--subtext);">
+        Trigger RPM (Lọc An Toàn): <span id="frpmVal" style="font-weight:bold; color:#00ff87;">0</span> RPM
+      </div>
+      <div style="margin-top: 4px;">Trạng thái: <span id="rpmNoise" style="font-weight:bold; color:var(--accent);">--</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Nhiệt độ Khí xả (EGT)</h3>
+      <div class="value-display" id="egtVal">-- <span class="unit">°C</span></div>
+      <div>dEGT: <span id="degtVal">0.0</span> °C/s | Dự báo (3s): <span id="pegtVal" style="font-weight:bold; color:#ff7675;">--</span> °C</div>
+    </div>
+
+    <div class="card">
+      <h3>Trạng thái Output</h3>
+      <p><span class="status-dot" id="dotIgn"></span> Đánh lửa (IGN)</p>
+      <p><span class="status-dot" id="dotV1"></span> Starter Valve (Valve 1)</p>
+      <p><span class="status-dot" id="dotV2"></span> Main Valve (Valve 2)</p>
+    </div>
+  </div>
+
+  <div class="grid">
     <!-- STARTER CONTROLLER -->
     <div class="card">
       <h3>Điều khiển Mô-tơ Đề (Starter)</h3>
@@ -272,7 +275,7 @@
         <div class="slider-container">
           <input type="range" id="starterSlider" min="1000" max="2000" value="1000"
             oninput="updateStarterFromSlider(this.value)">
-          <span id="starterUsVal" style="width: 65px; font-weight:bold; color:var(--accent);">1000 µs</span>
+          <span id="starterUsVal" style="min-width: 90px; padding: 6px 12px; font-size: 20px; font-weight: bold; color: #00ff87; background: #121212; border: 1px solid #00ff87; border-radius: 6px; text-align: center; box-shadow: 0 0 10px rgba(0, 255, 135, 0.2);">1000 µs</span>
         </div>
 
         <div class="step-control-container">
@@ -298,7 +301,7 @@
         <div class="slider-container">
           <input type="range" id="pumpSlider" min="1000" max="2000" value="1000"
             oninput="updatePumpFromSlider(this.value)">
-          <span id="pumpUsVal" style="width: 65px; font-weight:bold; color:var(--accent);">1000 µs</span>
+          <span id="pumpUsVal" style="min-width: 90px; padding: 6px 12px; font-size: 20px; font-weight: bold; color: #00adb5; background: #121212; border: 1px solid #00adb5; border-radius: 6px; text-align: center; box-shadow: 0 0 10px rgba(0, 173, 181, 0.2);">1000 µs</span>
         </div>
 
         <div class="step-control-container">
@@ -320,10 +323,15 @@
     <div class="card">
       <h3>Cấu Hình SD & Khẩn Cấp</h3>
       <div class="btn-grid" style="margin-bottom:10px;">
-        <button class="btn" onclick="toggleCmd('ign')">Toggle IGN</button>
-        <button class="btn" onclick="toggleCmd('valve1')">Toggle VALVE 1</button>
-        <button class="btn" onclick="toggleCmd('valve2')">Toggle VALVE 2</button>
-        <button class="btn" onclick="sendCmd('status')">Lấy Status</button>
+        <button class="btn" onclick="toggleCmd('ign')" style="grid-column: span 2;">Toggle IGN (Đánh Lửa)</button>
+        <button class="btn" onclick="toggleCmd('valve1')">Starter Valve (V1)</button>
+        <button class="btn" onclick="toggleCmd('valve2')">Main Valve (V2)</button>
+      </div>
+
+      <!-- MỒI NHIÊN LIỆU & THÔNG GIÓ -->
+      <div class="btn-grid" style="margin-bottom:10px;">
+        <button class="btn" style="background-color: #e67e22;" onclick="sendCmd('purge 3')">🌪️ Purge (Xả Khí 3s)</button>
+        <button class="btn" style="background-color: #27ae60;" onclick="sendCmd('prime 3')">⛽ Prime (Mồi Bơm 3s)</button>
       </div>
 
       <!-- LƯU VÀ LOAD CONFIG SD -->
@@ -333,18 +341,30 @@
       </div>
 
       <button class="btn btn-danger" style="width:100%; padding: 12px; font-size:15px;" onclick="stopAllEmergency()">🛑
-        ALL OFF (STOP KHẨN CẤP)</button>
+        ALL OFF (STOP KHẨN CẤP - [Space])</button>
     </div>
   </div>
 
   <div class="grid">
     <div class="card">
-      <h3>Màn hình Serial Log (RX / TX)</h3>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h3 style="margin: 0;">Màn hình Serial Log (RX / TX)</h3>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn" style="padding: 4px 10px; font-size: 12px; background-color: #333;" onclick="copyConsole('console')">📋 Copy</button>
+          <button class="btn btn-danger" style="padding: 4px 10px; font-size: 12px;" onclick="clearConsole('console')">🗑️ Clear</button>
+        </div>
+      </div>
       <div id="console"></div>
     </div>
 
     <div class="card">
-      <h3>Màn hình Telemetry Log (WEB_DATA)</h3>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h3 style="margin: 0;">Màn hình Telemetry Log (WEB_DATA)</h3>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn" style="padding: 4px 10px; font-size: 12px; background-color: #333;" onclick="copyConsole('webStatusConsole')">📋 Copy</button>
+          <button class="btn btn-danger" style="padding: 4px 10px; font-size: 12px;" onclick="clearConsole('webStatusConsole')">🗑️ Clear</button>
+        </div>
+      </div>
       <div id="webStatusConsole"></div>
     </div>
   </div>
@@ -630,6 +650,16 @@
       sendCmd('alloff');
     }
 
+    // --- KEYBOARD SHORTCUT: SPACEBAR FOR EMERGENCY STOP ---
+    document.addEventListener('keydown', (e) => {
+      const activeElement = document.activeElement;
+      const isInput = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA');
+      if ((e.code === 'Space' || e.key === ' ') && !isInput) {
+        e.preventDefault();
+        stopAllEmergency();
+      }
+    });
+
     let lastToggleTime = 0;
     function toggleCmd(type) {
       lastToggleTime = Date.now();
@@ -685,10 +715,18 @@
             document.getElementById('egtVal').innerHTML = valStr + " <span class='unit'>°C</span>";
           }
           if (part.startsWith("dEGT=")) document.getElementById('degtVal').innerText = part.replace("dEGT=", "");
+          if (part.startsWith("PEGT=")) {
+            let valStr = part.replace("PEGT=", "");
+            document.getElementById('pegtVal').innerText = valStr;
+          }
           if (part.startsWith("RPM=")) {
             let valStr = part.replace("RPM=", "");
             currentRpm = parseInt(valStr);
             document.getElementById('rpmVal').innerHTML = valStr + " <span class='unit'>RPM</span>";
+          }
+          if (part.startsWith("FRPM=")) {
+            let valStr = part.replace("FRPM=", "");
+            document.getElementById('frpmVal').innerText = valStr;
           }
           if (part.startsWith("RNOISE=")) document.getElementById('rpmNoise').innerText = part.replace("RNOISE=", "");
           if (part.startsWith("IGN=")) {
@@ -779,10 +817,39 @@
       else el.classList.remove('active');
     }
 
+    function clearConsole(id) {
+      const c = document.getElementById(id);
+      if (c) c.innerHTML = "";
+    }
+
+    async function copyConsole(id) {
+      const c = document.getElementById(id);
+      if (!c) return;
+      const text = c.innerText || c.textContent || "";
+      if (!text.trim()) {
+        alert("Log trống!");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        alert("Đã sao chép log vào Clipboard!");
+      } catch (err) {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+        alert("Đã sao chép log vào Clipboard!");
+      }
+    }
+
     function logConsole(msg) {
       const c = document.getElementById('console');
-      c.innerHTML += msg + "<br>";
-      c.scrollTop = c.scrollHeight;
+      if (c) {
+        c.innerHTML += msg + "<br>";
+        c.scrollTop = c.scrollHeight;
+      }
     }
 
     function logWebStatusConsole(msg) {
