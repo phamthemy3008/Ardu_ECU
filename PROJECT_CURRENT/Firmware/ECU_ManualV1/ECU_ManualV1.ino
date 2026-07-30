@@ -95,11 +95,12 @@ volatile uint32_t isrMinDtUs = 0xFFFFFFFFUL;
 volatile uint32_t isrMaxDtUs = 0;
 volatile uint64_t isrSumDtUs = 0;
 volatile uint64_t isrSumDtSqUs = 0;
-volatile uint32_t isrHist[3] = {0, 0, 0};
+volatile uint32_t isrHist[5] = {0, 0, 0, 0, 0};
 volatile uint8_t  isrHistIdx = 0;
 
 struct RpmState {
-  float rpm = 0.0f, rpmWindow = 0.0f, rpmPeriod = 0.0f, rpmFiltered = 0.0f, rawRawRpm = 0.0f;
+  float rpm = 0.0f, rpmStage1 = 0.0f, rpmWindow = 0.0f, rpmPeriod = 0.0f, rpmFiltered = 0.0f, rawRawRpm = 0.0f;
+  float prevRawRpmCandidate = 0.0f;  // Rate Limiter: lưu RPM thô chu kỳ trước
   float avgIntervalUs = 0.0f, jitterPct = 0.0f, rejectPct = 0.0f, rpmDiffPct = 0.0f;
   bool signalRecent = false, restGuardActive = false, restPulseNoise = false;
   uint32_t acceptedWindow = 0, rawEdges = 0, rejectedEdges = 0, validIntervals = 0;
@@ -112,6 +113,102 @@ struct RpmState {
 uint8_t  pulsesPerRev = 1;
 bool     rpmDetailMode = false;
 bool     rpmCalMode = false;
+
+// ---------------- Adaptive PWM→RPM Learning ----------------
+// Tự học mối quan hệ giữa xung PWM gửi cho Starter và RPM thực tế.
+// Khi tín hiệu sạch (CLEAN/WARN): ghi nhớ cặp (startUs, RPM).
+// Khi nhiễu cao: dùng dữ liệu đã học để reject RPM bất hợp lý.
+static const int PWM_BIN_WIDTH = 50;       // Mỗi bin rộng 50µs
+static const int PWM_BIN_COUNT = 20;       // 20 bins: 1000-1050, 1050-1100, ..., 1950-2000
+static const uint16_t PWM_BIN_MIN_TRUST = 10;  // Cần tối thiểu 10 sample mới tin
+
+struct PwmRpmBin {
+  float rpmEstimate = 0.0f;   // RPM trung bình đã học
+  uint16_t sampleCount = 0;   // Số lần sample (tối đa 10000)
+};
+
+PwmRpmBin starterRpmMap[PWM_BIN_COUNT];
+uint8_t   starterLearnedBins = 0;  // Đếm số bin đã học đủ (hiển thị trên Web)
+
+int pwmToBinIndex(int us) {
+  int idx = (us - ESC_MIN_US) / PWM_BIN_WIDTH;
+  if (idx < 0) return 0;
+  if (idx >= PWM_BIN_COUNT) return PWM_BIN_COUNT - 1;
+  return idx;
+}
+
+void learnStarterRpm(int starterPwmUs, float measuredRpm) {
+  int idx = pwmToBinIndex(starterPwmUs);
+  PwmRpmBin &bin = starterRpmMap[idx];
+  if (bin.sampleCount == 0) {
+    bin.rpmEstimate = measuredRpm;
+  } else {
+    // EMA chậm (alpha=0.03): học ổn định, không bị nhiễu nhẹ kéo lệch
+    bin.rpmEstimate = 0.03f * measuredRpm + 0.97f * bin.rpmEstimate;
+  }
+  bool wasTrusted = (bin.sampleCount >= PWM_BIN_MIN_TRUST);
+  if (bin.sampleCount < 10000) bin.sampleCount++;
+  // Chỉ cập nhật counter khi bin vừa vượt ngưỡng tin cậy (tránh loop 20 bin mỗi lần)
+  if (!wasTrusted && bin.sampleCount >= PWM_BIN_MIN_TRUST) starterLearnedBins++;
+}
+
+// Lấy RPM kỳ vọng cho một mức PWM, có nội suy từ bin lân cận
+float getExpectedStarterRpm(int starterPwmUs) {
+  int idx = pwmToBinIndex(starterPwmUs);
+  PwmRpmBin &bin = starterRpmMap[idx];
+  if (bin.sampleCount >= PWM_BIN_MIN_TRUST) return bin.rpmEstimate;
+
+  // Nội suy từ bin lân cận gần nhất
+  // Tìm bin bên trái có dữ liệu
+  int leftIdx = -1;
+  for (int i = idx - 1; i >= 0; i--) {
+    if (starterRpmMap[i].sampleCount >= PWM_BIN_MIN_TRUST) { leftIdx = i; break; }
+  }
+  // Tìm bin bên phải có dữ liệu
+  int rightIdx = -1;
+  for (int i = idx + 1; i < PWM_BIN_COUNT; i++) {
+    if (starterRpmMap[i].sampleCount >= PWM_BIN_MIN_TRUST) { rightIdx = i; break; }
+  }
+
+  if (leftIdx >= 0 && rightIdx >= 0) {
+    // Nội suy tuyến tính giữa 2 bin
+    float t = (float)(idx - leftIdx) / (float)(rightIdx - leftIdx);
+    return starterRpmMap[leftIdx].rpmEstimate + t * (starterRpmMap[rightIdx].rpmEstimate - starterRpmMap[leftIdx].rpmEstimate);
+  } else if (leftIdx >= 0) {
+    return starterRpmMap[leftIdx].rpmEstimate;
+  } else if (rightIdx >= 0) {
+    return starterRpmMap[rightIdx].rpmEstimate;
+  }
+  return -1.0f; // Chưa có dữ liệu nào
+}
+
+void resetLearnedRpmMap() {
+  for (int i = 0; i < PWM_BIN_COUNT; i++) {
+    starterRpmMap[i].rpmEstimate = 0.0f;
+    starterRpmMap[i].sampleCount = 0;
+  }
+  starterLearnedBins = 0;
+}
+
+void printLearnedRpmMap() {
+  Serial.println("===== ADAPTIVE PWM->RPM MAP =====");
+  Serial.print("Bins learned: "); Serial.print(starterLearnedBins); Serial.print("/"); Serial.println(PWM_BIN_COUNT);
+  for (int i = 0; i < PWM_BIN_COUNT; i++) {
+    int lo = ESC_MIN_US + i * PWM_BIN_WIDTH;
+    int hi = lo + PWM_BIN_WIDTH;
+    Serial.print("  ["); Serial.print(lo); Serial.print("-"); Serial.print(hi); Serial.print("us] ");
+    if (starterRpmMap[i].sampleCount >= PWM_BIN_MIN_TRUST) {
+      Serial.print("RPM="); Serial.print(starterRpmMap[i].rpmEstimate, 0);
+      Serial.print(" (n="); Serial.print(starterRpmMap[i].sampleCount); Serial.print(")");
+    } else if (starterRpmMap[i].sampleCount > 0) {
+      Serial.print("learning... ("); Serial.print(starterRpmMap[i].sampleCount); Serial.print("/"); Serial.print(PWM_BIN_MIN_TRUST); Serial.print(")");
+    } else {
+      Serial.print("--");
+    }
+    Serial.println();
+  }
+  Serial.println("=================================");
+}
 
 const char* rpmNoiseName(RpmNoiseLevel n) {
   switch (n) {
@@ -237,24 +334,26 @@ void IRAM_ATTR rpmISR() {
     uint32_t dtAcceptedUs = nowUs - isrLastAcceptedPulseUs;
     uint32_t maskUs = filterUs;
     if (isrLastPeriodUs > 0 && isrLastPeriodUs <= 100000UL) {
-      uint32_t dynMaskUs = (isrLastPeriodUs * 2UL) / 3UL; // 66.7% of previous period (active only when RPM > 600)
+      uint32_t dynMaskUs = (isrLastPeriodUs * 3UL) / 4UL; // 75% of previous period — siết chặt hơn 66.7% cũ
       if (dynMaskUs > 50000UL) dynMaskUs = 50000UL;
       if (dynMaskUs > maskUs) maskUs = dynMaskUs;
     }
     if (dtAcceptedUs < maskUs) { isrRejectedEdges++; return; }
     
-    // Median Filter 3 phần tử (Triệt tiêu nhiễu xung rác hoặc mất xung đơn lẻ từ Bugi/ESC)
+    // Median Filter 5 phần tử — chịu được 2 xung rác liên tiếp (burst noise)
     if (isrHist[0] == 0) {
-      isrHist[0] = dtAcceptedUs; isrHist[1] = dtAcceptedUs; isrHist[2] = dtAcceptedUs;
+      for (uint8_t i = 0; i < 5; i++) isrHist[i] = dtAcceptedUs;
     } else {
       isrHist[isrHistIdx] = dtAcceptedUs;
-      isrHistIdx = (isrHistIdx + 1) % 3;
+      isrHistIdx = (isrHistIdx + 1) % 5;
     }
-    uint32_t a = isrHist[0], b = isrHist[1], c = isrHist[2];
-    uint32_t medianUs;
-    if ((a <= b && b <= c) || (c <= b && b <= a)) medianUs = b;
-    else if ((b <= a && a <= c) || (c <= a && a <= b)) medianUs = a;
-    else medianUs = c;
+    // Sorting network tối ưu cho 5 phần tử (9 comparisons) — an toàn cho IRAM
+    uint32_t s[5] = { isrHist[0], isrHist[1], isrHist[2], isrHist[3], isrHist[4] };
+    #define SORT2(i,j) if(s[i]>s[j]){uint32_t t=s[i];s[i]=s[j];s[j]=t;}
+    SORT2(0,1); SORT2(3,4); SORT2(2,4); SORT2(2,3); SORT2(0,3);
+    SORT2(0,2); SORT2(1,4); SORT2(1,3); SORT2(1,2);
+    #undef SORT2
+    uint32_t medianUs = s[2]; // Phần tử giữa sau khi sắp xếp
 
     isrLastPeriodUs = dtAcceptedUs; // Giữ nguyên mask dựa trên chu kỳ gốc
     isrAcceptedIntervals++;
@@ -272,7 +371,7 @@ void resetRpmStats() {
   isrLastRawEdgeUs = 0; isrLastAcceptedPulseUs = 0; isrLastPeriodUs = 0;
   isrRawEdges = 0; isrAcceptedPulses = 0; isrRejectedEdges = 0; isrAcceptedIntervals = 0;
   isrSumDtUs = 0; isrSumDtSqUs = 0; isrMinDtUs = 0xFFFFFFFFUL; isrMaxDtUs = 0;
-  isrHist[0] = 0; isrHistIdx = 0;
+  for (uint8_t i = 0; i < 5; i++) isrHist[i] = 0; isrHistIdx = 0;
   interrupts();
   rpmData = RpmState();
   Serial.println("RPM stats reset.");
@@ -358,16 +457,54 @@ void updateRpm() {
       rawRpmCandidate = (rpmData.rpmWindow > 0.0f && rpmData.rpmWindow <= maxAllowedRpm) ? rpmData.rpmWindow : 0.0f;
     }
 
-    // Làm mượt bằng bộ lọc LPF EMA. Tự động chuyển đổi cường độ lọc (Dynamic Alpha)
-    if (rpmData.rpm == 0.0f && rawRpmCandidate > 0.0f) {
+    // --- RATE LIMITER: Giới hạn tốc độ thay đổi RPM (slew rate) ---
+    // Turbine jet không thể tăng/giảm quá nhanh. Nếu vượt ngưỡng → giữ giá trị cũ.
+    if (rpmData.prevRawRpmCandidate > 0.0f && rawRpmCandidate > 0.0f) {
+      float maxSlew = (rpmData.prevRawRpmCandidate < 30000.0f) ? 5000.0f : 15000.0f; // RPM/100ms
+      float delta = rawRpmCandidate - rpmData.prevRawRpmCandidate;
+      if (delta > maxSlew) rawRpmCandidate = rpmData.prevRawRpmCandidate + maxSlew;
+      else if (delta < -maxSlew) rawRpmCandidate = rpmData.prevRawRpmCandidate - maxSlew;
+    }
+    rpmData.prevRawRpmCandidate = rawRpmCandidate;
+
+    // --- ADAPTIVE PWM-AWARE FILTER: Lọc dựa trên mô hình vật lý ---
+    // Nếu starter đang chạy: dùng dữ liệu đã học để loại bỏ RPM bất hợp lý
+    if (startUs > ESC_SAFE_US) {
+      // PHASE 1 - HỌC: Khi tín hiệu sạch, ghi nhớ cặp (PWM, RPM)
+      if (rpmData.noise <= RPM_WARN && rawRpmCandidate > 100.0f) {
+        learnStarterRpm(startUs, rawRpmCandidate);
+      }
+      // PHASE 2 - LỌC: Khi đã có dữ liệu, reject RPM ngoài vùng cho phép
+      float expectedRpm = getExpectedStarterRpm(startUs);
+      if (expectedRpm > 0.0f && rawRpmCandidate > 0.0f) {
+        // Tolerance co dần khi confidence tăng: bắt đầu ±50%, siết xuống ±25%
+        int idx = pwmToBinIndex(startUs);
+        uint16_t n = starterRpmMap[idx].sampleCount;
+        float tolerance = (n < PWM_BIN_MIN_TRUST) ? 0.50f : max(0.25f, 0.50f - (float)(n - PWM_BIN_MIN_TRUST) * 0.001f);
+        float lo = expectedRpm * (1.0f - tolerance);
+        float hi = expectedRpm * (1.0f + tolerance);
+        if (rawRpmCandidate < lo || rawRpmCandidate > hi) {
+          rawRpmCandidate = expectedRpm; // Snap về giá trị kỳ vọng
+          rpmData.prevRawRpmCandidate = expectedRpm; // Đồng bộ Rate Limiter tránh lệch chu kỳ sau
+        }
+      }
+    }
+
+    // --- CASCADED DUAL-EMA bậc 2: Lọc 2 tầng nối tiếp ---
+    // Tầng 1 (rpmStage1): Lọc thô, phản hồi nhanh
+    // Tầng 2 (rpm): Lọc tinh, loại bỏ spike triệt để
+    if (rpmData.rpmStage1 == 0.0f && rawRpmCandidate > 0.0f) {
+      rpmData.rpmStage1 = rawRpmCandidate;
       rpmData.rpm = rawRpmCandidate;
     } else {
-      // Khi Mô-tơ đề chạy (startUs > 1000), nhiễu điện từ (EMI) từ BLDC ESC cực mạnh làm RPM nhảy 2000-4000.
-      // Ta dùng alpha nhỏ (0.15) để "chà phẳng" nhiễu này. Khi Mô-tơ đề tắt, trả về alpha 0.40 để lấy lại tốc độ phản hồi chớp nhoáng!
-      float alpha = (startUs > ESC_SAFE_US) ? 0.15f : 0.40f;
-      rpmData.rpm = (alpha * rawRpmCandidate) + ((1.0f - alpha) * rpmData.rpm);
+      // Khi Mô-tơ đề chạy: alpha cực nhỏ chà phẳng EMI. Khi tắt đề: phản hồi nhanh.
+      float alpha1 = (startUs > ESC_SAFE_US) ? 0.12f : 0.30f; // Tầng 1
+      float alpha2 = (startUs > ESC_SAFE_US) ? 0.35f : 0.50f; // Tầng 2
+      rpmData.rpmStage1 = (alpha1 * rawRpmCandidate) + ((1.0f - alpha1) * rpmData.rpmStage1);
+      rpmData.rpm = (alpha2 * rpmData.rpmStage1) + ((1.0f - alpha2) * rpmData.rpm);
     }
     if (rawRpmCandidate == 0.0f && rpmData.rpm < 50.0f) {
+      rpmData.rpmStage1 = 0.0f;
       rpmData.rpm = 0.0f;
     }
 
@@ -596,7 +733,8 @@ void sendWebStatus() {
   Serial.print(" | V2="); Serial.print(valve2Cmd ? 1 : 0);
   Serial.print(" | SD="); Serial.print(sdOk ? "OK" : "-");
   if (rpmCalMode) Serial.print(" | RPMCAL");
-  Serial.print(" | VER=3.9");
+  Serial.print(" | ALEARN="); Serial.print(starterLearnedBins); Serial.print("/"); Serial.print(PWM_BIN_COUNT);
+  Serial.print(" | VER=4.1");
   Serial.println();
 }
 
@@ -670,6 +808,8 @@ void handleCommand(String cmd) {
   if (cmd == "rpmdetail on") { rpmDetailMode = true; resetRpmStats(); Serial.println("RPM detail ON."); return; }
   if (cmd == "rpmdetail off") { rpmDetailMode = false; Serial.println("RPM detail OFF."); return; }
   if (cmd == "rpmreset") { resetRpmStats(); return; }
+  if (cmd == "rpmlearn reset") { resetLearnedRpmMap(); Serial.println("RPM learning table reset."); return; }
+  if (cmd == "rpmlearn") { printLearnedRpmMap(); return; }
 
   if (cmd.startsWith("set rpmfilter ")) {
     int f = numberAfter(cmd, "set rpmfilter ");
@@ -809,7 +949,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 3.9");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 4.1");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;
