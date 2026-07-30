@@ -139,6 +139,14 @@ int pwmToBinIndex(int us) {
 
 void learnStarterRpm(int starterPwmUs, float measuredRpm) {
   int idx = pwmToBinIndex(starterPwmUs);
+
+  // === RÀNG BUỘC ĐƠN ĐIỆU (Monotonicity): Không học nếu vi phạm vật lý ===
+  // PWM cao hơn PHẢI cho RPM cao hơn. Nếu RPM đo được thấp hơn 80% của bin PWM thấp hơn → nhiễu.
+  float rpmFloor = getMonotonicFloor(idx);
+  if (rpmFloor > 0.0f && measuredRpm < rpmFloor * 0.80f) {
+    return; // Từ chối học giá trị vi phạm đơn điệu
+  }
+
   PwmRpmBin &bin = starterRpmMap[idx];
   if (bin.sampleCount == 0) {
     bin.rpmEstimate = measuredRpm;
@@ -150,6 +158,17 @@ void learnStarterRpm(int starterPwmUs, float measuredRpm) {
   if (bin.sampleCount < 10000) bin.sampleCount++;
   // Chỉ cập nhật counter khi bin vừa vượt ngưỡng tin cậy (tránh loop 20 bin mỗi lần)
   if (!wasTrusted && bin.sampleCount >= PWM_BIN_MIN_TRUST) starterLearnedBins++;
+}
+
+// Lấy RPM sàn từ định luật đơn điệu: RPM tối thiểu ở bin hiện tại = max RPM của tất cả bin thấp hơn
+float getMonotonicFloor(int binIdx) {
+  float floor = 0.0f;
+  for (int i = 0; i < binIdx; i++) {
+    if (starterRpmMap[i].sampleCount >= PWM_BIN_MIN_TRUST) {
+      if (starterRpmMap[i].rpmEstimate > floor) floor = starterRpmMap[i].rpmEstimate;
+    }
+  }
+  return floor;
 }
 
 // Lấy RPM kỳ vọng cho một mức PWM, có nội suy từ bin lân cận
@@ -470,19 +489,32 @@ void updateRpm() {
     // --- ADAPTIVE PWM-AWARE FILTER: Lọc dựa trên mô hình vật lý ---
     // Nếu starter đang chạy: dùng dữ liệu đã học để loại bỏ RPM bất hợp lý
     if (startUs > ESC_SAFE_US) {
+      int currentBinIdx = pwmToBinIndex(startUs);
+
       // PHASE 1 - HỌC: Khi tín hiệu sạch, ghi nhớ cặp (PWM, RPM)
       if (rpmData.noise <= RPM_WARN && rawRpmCandidate > 100.0f) {
         learnStarterRpm(startUs, rawRpmCandidate);
       }
-      // PHASE 2 - LỌC: Khi đã có dữ liệu, reject RPM ngoài vùng cho phép
+
+      // PHASE 2 - LỌC: Ràng buộc đơn điệu (Monotonicity Floor)
+      // PWM cao hơn PHẢI có RPM >= RPM của bin thấp hơn. Vi phạm → nhiễu.
+      float rpmFloor = getMonotonicFloor(currentBinIdx);
+      if (rpmFloor > 0.0f && rawRpmCandidate > 0.0f && rawRpmCandidate < rpmFloor * 0.85f) {
+        float snapTarget = (getExpectedStarterRpm(startUs) > 0.0f) ? getExpectedStarterRpm(startUs) : rpmFloor;
+        rawRpmCandidate = snapTarget;
+        rpmData.prevRawRpmCandidate = snapTarget;
+      }
+
+      // PHASE 3 - LỌC: Tolerance window từ dữ liệu đã học
       float expectedRpm = getExpectedStarterRpm(startUs);
       if (expectedRpm > 0.0f && rawRpmCandidate > 0.0f) {
         // Tolerance co dần khi confidence tăng: bắt đầu ±50%, siết xuống ±25%
-        int idx = pwmToBinIndex(startUs);
-        uint16_t n = starterRpmMap[idx].sampleCount;
+        uint16_t n = starterRpmMap[currentBinIdx].sampleCount;
         float tolerance = (n < PWM_BIN_MIN_TRUST) ? 0.50f : max(0.25f, 0.50f - (float)(n - PWM_BIN_MIN_TRUST) * 0.001f);
         float lo = expectedRpm * (1.0f - tolerance);
         float hi = expectedRpm * (1.0f + tolerance);
+        // Sàn đơn điệu luôn ưu tiên hơn tolerance lo
+        if (rpmFloor > 0.0f && lo < rpmFloor * 0.85f) lo = rpmFloor * 0.85f;
         if (rawRpmCandidate < lo || rawRpmCandidate > hi) {
           rawRpmCandidate = expectedRpm; // Snap về giá trị kỳ vọng
           rpmData.prevRawRpmCandidate = expectedRpm; // Đồng bộ Rate Limiter tránh lệch chu kỳ sau
