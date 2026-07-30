@@ -250,6 +250,9 @@
       <div style="margin-top: 4px; font-size: 13px; color: var(--subtext);">
         Trigger RPM (Lọc An Toàn): <span id="frpmVal" style="font-weight:bold; color:#00ff87;">0</span> RPM
       </div>
+      <div style="margin-top: 4px; font-size: 13px; color: var(--subtext);">
+        Raw Unfiltered RPM (Thô 100%): <span id="rrpmVal" style="font-weight:bold; color:#ff7675;">0</span> RPM
+      </div>
       <div style="margin-top: 4px;">Trạng thái: <span id="rpmNoise" style="font-weight:bold; color:var(--accent);">--</span></div>
     </div>
 
@@ -721,6 +724,10 @@
           if (part.startsWith("FRPM=")) {
             let valStr = part.replace("FRPM=", "");
             document.getElementById('frpmVal').innerText = valStr;
+          }
+          if (part.startsWith("RRPM=")) {
+            let valStr = part.replace("RRPM=", "");
+            document.getElementById('rrpmVal').innerText = valStr;
           }
           if (part.startsWith("RNOISE=")) document.getElementById('rpmNoise').innerText = part.replace("RNOISE=", "");
           if (part.startsWith("IGN=")) {

@@ -95,9 +95,11 @@ volatile uint32_t isrMinDtUs = 0xFFFFFFFFUL;
 volatile uint32_t isrMaxDtUs = 0;
 volatile uint64_t isrSumDtUs = 0;
 volatile uint64_t isrSumDtSqUs = 0;
+volatile uint32_t isrHist[3] = {0, 0, 0};
+volatile uint8_t  isrHistIdx = 0;
 
 struct RpmState {
-  float rpm = 0.0f, rpmWindow = 0.0f, rpmPeriod = 0.0f, rpmFiltered = 0.0f;
+  float rpm = 0.0f, rpmWindow = 0.0f, rpmPeriod = 0.0f, rpmFiltered = 0.0f, rawRawRpm = 0.0f;
   float avgIntervalUs = 0.0f, jitterPct = 0.0f, rejectPct = 0.0f, rpmDiffPct = 0.0f;
   bool signalRecent = false, restGuardActive = false, restPulseNoise = false;
   uint32_t acceptedWindow = 0, rawEdges = 0, rejectedEdges = 0, validIntervals = 0;
@@ -240,12 +242,26 @@ void IRAM_ATTR rpmISR() {
       if (dynMaskUs > maskUs) maskUs = dynMaskUs;
     }
     if (dtAcceptedUs < maskUs) { isrRejectedEdges++; return; }
-    isrLastPeriodUs = dtAcceptedUs;
+    
+    // Median Filter 3 phần tử (Triệt tiêu nhiễu xung rác hoặc mất xung đơn lẻ từ Bugi/ESC)
+    if (isrHist[0] == 0) {
+      isrHist[0] = dtAcceptedUs; isrHist[1] = dtAcceptedUs; isrHist[2] = dtAcceptedUs;
+    } else {
+      isrHist[isrHistIdx] = dtAcceptedUs;
+      isrHistIdx = (isrHistIdx + 1) % 3;
+    }
+    uint32_t a = isrHist[0], b = isrHist[1], c = isrHist[2];
+    uint32_t medianUs;
+    if ((a <= b && b <= c) || (c <= b && b <= a)) medianUs = b;
+    else if ((b <= a && a <= c) || (c <= a && a <= b)) medianUs = a;
+    else medianUs = c;
+
+    isrLastPeriodUs = dtAcceptedUs; // Giữ nguyên mask dựa trên chu kỳ gốc
     isrAcceptedIntervals++;
-    isrSumDtUs += dtAcceptedUs;
-    isrSumDtSqUs += (uint64_t)dtAcceptedUs * (uint64_t)dtAcceptedUs;
-    if (dtAcceptedUs < isrMinDtUs) isrMinDtUs = dtAcceptedUs;
-    if (dtAcceptedUs > isrMaxDtUs) isrMaxDtUs = dtAcceptedUs;
+    isrSumDtUs += medianUs; // Cộng median thay vì raw để tính trung bình tuyệt đối tĩnh
+    isrSumDtSqUs += (uint64_t)medianUs * (uint64_t)medianUs;
+    if (medianUs < isrMinDtUs) isrMinDtUs = medianUs;
+    if (medianUs > isrMaxDtUs) isrMaxDtUs = medianUs;
   }
   isrLastAcceptedPulseUs = nowUs;
   isrAcceptedPulses++;
@@ -256,6 +272,7 @@ void resetRpmStats() {
   isrLastRawEdgeUs = 0; isrLastAcceptedPulseUs = 0; isrLastPeriodUs = 0;
   isrRawEdges = 0; isrAcceptedPulses = 0; isrRejectedEdges = 0; isrAcceptedIntervals = 0;
   isrSumDtUs = 0; isrSumDtSqUs = 0; isrMinDtUs = 0xFFFFFFFFUL; isrMaxDtUs = 0;
+  isrHist[0] = 0; isrHistIdx = 0;
   interrupts();
   rpmData = RpmState();
   Serial.println("RPM stats reset.");
@@ -293,6 +310,8 @@ void updateRpm() {
   rpmData.restPulseNoise = rpmData.restGuardActive && (raw > 0 || accepted > 0 || rpmData.signalRecent);
 
   rpmData.rejectPct = (raw > 0) ? ((float)rejected * 100.0f / (float)raw) : 0.0f;
+  rpmData.rawRawRpm = (raw > 0 && windowUs > 0) ?
+                      ((float)raw * 60000000.0f / ((float)windowUs * (float)pulsesPerRev)) : 0.0f;
   rpmData.rpmWindow = (accepted > 0 && windowUs > 0) ?
                       ((float)accepted * 60000000.0f / ((float)windowUs * (float)pulsesPerRev)) : 0.0f;
   rpmData.rpmPeriod = 0.0f;
@@ -323,7 +342,7 @@ void updateRpm() {
     rpmData.noise = classifyRpmNoise(rpmData.signalRecent, raw, accepted, rejected,
                                      rpmData.rejectPct, rpmData.jitterPct, rpmData.rpmDiffPct, validN);
     // Outlier Spike Rejection: Starter Outlier Guard (max 20k RPM during cranking) & Jet Engine Max limit (160k RPM)
-    float maxAllowedRpm = (startUs > ESC_SAFE_US && rpmData.rpmWindow < 15000.0f) ? 20000.0f : 160000.0f;
+    float maxAllowedRpm = (startUs > ESC_SAFE_US && rpmData.rpmFiltered < 15000.0f) ? 20000.0f : 160000.0f;
 
     // Tính RPM trung bình vi-mô từ tổng thời gian các xung hợp lệ trong 100ms (Microsecond Average RPM)
     float rawRpmCandidate = 0.0f;
@@ -567,6 +586,7 @@ void sendWebStatus() {
   Serial.print(" | PEGT="); if (!isnan(egt.cProjected3s)) { Serial.print(egt.cProjected3s, 1); } else { Serial.print("-"); }
   Serial.print(" | RPM="); Serial.print(rpmData.rpm, 0);
   Serial.print(" | FRPM="); Serial.print(rpmData.rpmFiltered, 0);
+  Serial.print(" | RRPM="); Serial.print(rpmData.rawRawRpm, 0);
   Serial.print(" | SIG="); Serial.print(rpmData.signalRecent ? "OK" : (rpmData.noise == RPM_REST_NOISE ? "REST" : "LOST"));
   Serial.print(" | RNOISE="); Serial.print(rpmNoiseName(rpmData.noise));
   Serial.print(" | PUMP="); Serial.print(pumpUs); Serial.print("us");
@@ -593,6 +613,8 @@ void printStatus() {
   if (egt.ok) { Serial.print(egt.c, 1); Serial.print("C"); } else { Serial.print("ERR("); Serial.print(egtFaultString(egt.fault)); Serial.print(")"); }
   Serial.print(" | dEGT="); Serial.print(egt.gradientCps, 1);
   Serial.print(" | RPM="); Serial.print(rpmData.rpm, 0);
+  Serial.print(" | FRPM="); Serial.print(rpmData.rpmFiltered, 0);
+  Serial.print(" | RRPM="); Serial.print(rpmData.rawRawRpm, 0);
   Serial.print(" | SIG="); Serial.print(rpmData.signalRecent ? "OK" : (rpmData.noise == RPM_REST_NOISE ? "REST" : "LOST"));
   Serial.print(" | RNOISE="); Serial.print(rpmNoiseName(rpmData.noise));
   Serial.print(" | PUMP="); Serial.print(pumpUs); Serial.print("us");
