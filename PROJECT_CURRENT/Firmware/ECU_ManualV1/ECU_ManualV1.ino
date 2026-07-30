@@ -339,11 +339,13 @@ void updateRpm() {
       rawRpmCandidate = (rpmData.rpmWindow > 0.0f && rpmData.rpmWindow <= maxAllowedRpm) ? rpmData.rpmWindow : 0.0f;
     }
 
-    // Làm mượt bằng bộ lọc LPF EMA (alpha = 0.40) triệt tiêu hoàn toàn dao động rác
+    // Làm mượt bằng bộ lọc LPF EMA. Tự động chuyển đổi cường độ lọc (Dynamic Alpha)
     if (rpmData.rpm == 0.0f && rawRpmCandidate > 0.0f) {
       rpmData.rpm = rawRpmCandidate;
     } else {
-      const float alpha = 0.40f;
+      // Khi Mô-tơ đề chạy (startUs > 1000), nhiễu điện từ (EMI) từ BLDC ESC cực mạnh làm RPM nhảy 2000-4000.
+      // Ta dùng alpha nhỏ (0.15) để "chà phẳng" nhiễu này. Khi Mô-tơ đề tắt, trả về alpha 0.40 để lấy lại tốc độ phản hồi chớp nhoáng!
+      float alpha = (startUs > ESC_SAFE_US) ? 0.15f : 0.40f;
       rpmData.rpm = (alpha * rawRpmCandidate) + ((1.0f - alpha) * rpmData.rpm);
     }
     if (rawRpmCandidate == 0.0f && rpmData.rpm < 50.0f) {
@@ -356,7 +358,7 @@ void updateRpm() {
     if (rpmData.rpmFiltered == 0.0f && rawTriggerTarget > 0.0f) {
       rpmData.rpmFiltered = rawTriggerTarget;
     } else {
-      const float alphaTrigger = 0.25f; // Lọc mượt hơn nữa cho Trigger
+      float alphaTrigger = (startUs > ESC_SAFE_US) ? 0.08f : 0.25f; // Ép mượt tuyệt đối (0.08) cho Trigger khi đang đề
       rpmData.rpmFiltered = (alphaTrigger * rawTriggerTarget) + ((1.0f - alphaTrigger) * rpmData.rpmFiltered);
     }
     if (rawTriggerTarget == 0.0f || rpmData.rpm == 0.0f) {
@@ -531,10 +533,8 @@ void allOff() {
 }
 
 // ---------------- Purge & Prime Timers ----------------
-bool purgeActive = false;
-uint32_t purgeUntilMs = 0;
-bool primeActive = false;
-uint32_t primeUntilMs = 0;
+// Removed per user request
+
 bool escCalActive = false;
 uint32_t escCalPhaseUntilMs = 0;
 static const uint32_t ESC_CAL_MAX_HOLD_MS = 5000;
@@ -726,35 +726,7 @@ void handleCommand(String cmd) {
     Serial.println("ESC CAL cancelled."); return;
   }
 
-  if (cmd.startsWith("purge")) {
-    int durationSec = 3;
-    String arg = cmd.substring(String("purge").length()); arg.trim();
-    if (arg.length() > 0) durationSec = arg.toInt();
-    if (durationSec < 1 || durationSec > 10) durationSec = 3;
-    purgeActive = true;
-    purgeUntilMs = millis() + (durationSec * 1000UL);
-    startUs = startSetUs > 1000 ? startSetUs : 1250;
-    applyOutputs();
-    Serial.print("PURGE: Running Starter at "); Serial.print(startUs); Serial.print("us for "); Serial.print(durationSec); Serial.println("s");
-    return;
-  }
-
-  if (cmd.startsWith("prime")) {
-    int durationSec = 3;
-    String arg = cmd.substring(String("prime").length()); arg.trim();
-    if (arg.length() > 0) durationSec = arg.toInt();
-    if (durationSec < 1 || durationSec > 10) durationSec = 3;
-    primeActive = true;
-    primeUntilMs = millis() + (durationSec * 1000UL);
-    pumpUs = pumpSetUs > 1000 ? pumpSetUs : 1200;
-    valve1Cmd = true;
-    applyOutputs();
-    Serial.print("PRIME: Running Pump at "); Serial.print(pumpUs); Serial.print("us with Valve1 for "); Serial.print(durationSec); Serial.println("s");
-    return;
-  }
-
   if (cmd == "alloff" || cmd == "stop" || cmd == "off") { 
-    purgeActive = false; primeActive = false;
     allOff(); Serial.println("ALL OUTPUTS SAFE."); return; 
   }
   if (cmd == "savecfg") { 
@@ -826,19 +798,7 @@ void loop() {
     escCalPhaseUntilMs = 0; escCalActive = false;
     Serial.println("ESC CAL: dropped to MIN 1000us (done).");
   }
-  if (purgeActive && millis() >= purgeUntilMs) {
-    purgeActive = false;
-    startUs = ESC_SAFE_US;
-    applyOutputs();
-    Serial.println("PURGE: Completed (Starter OFF).");
-  }
-  if (primeActive && millis() >= primeUntilMs) {
-    primeActive = false;
-    pumpUs = ESC_SAFE_US;
-    valve1Cmd = false;
-    applyOutputs();
-    Serial.println("PRIME: Completed (Pump & Valve OFF).");
-  }
+
 
   updateRpm();
   updateEgt();
