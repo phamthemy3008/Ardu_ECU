@@ -613,6 +613,13 @@ void updateEgt() {
     if (dtS > 0.05f) {
       egt.gradientCps = ((float)tc - egt.c) / dtS;
       egt.cProjected3s = (float)tc + (egt.gradientCps * 3.0f);
+
+      // --- BẢO VỆ CHỐNG BÙNG NHIỆT (PEGT 3s > 740°C) ---
+      if (pumpUs > ESC_SAFE_US && egt.cProjected3s > 740.0f) {
+        emergencyStop();
+        Serial.print("ERR:E02|PEGT="); Serial.println(egt.cProjected3s, 1);
+        sendWebStatus();
+      }
     }
   } else {
     egt.gradientCps = 0;
@@ -750,8 +757,13 @@ void emergencyStop() {
   ignCmd = false; valve1Cmd = false; valve2Cmd = false;
   if (startUs <= ESC_SAFE_US) {
     if (egt.ok && egt.c > 80.0f) {
-      startUs = 1300; // Chỉ bật Đề thổi khí (1300us) nếu nhiệt độ EGT > 80°C
+      startUs = 1300;
+      Serial.print("EV:A03|EGT="); Serial.println(egt.c, 1);
+    } else {
+      Serial.println("EV:A04");
     }
+  } else {
+    Serial.print("EV:A03|START="); Serial.println(startUs);
   }
   applyOutputs();
 }
@@ -809,7 +821,7 @@ void sendWebStatus() {
   Serial.print(" | SD="); Serial.print(sdOk ? "OK" : "-");
   if (rpmCalMode) Serial.print(" | RPMCAL");
   Serial.print(" | ALEARN="); Serial.print(starterLearnedBins); Serial.print("/"); Serial.print(PWM_BIN_COUNT);
-  Serial.print(" | VER=4.6");
+  Serial.print(" | VER=5.3");
   Serial.println();
 }
 
@@ -938,18 +950,59 @@ void handleCommand(String cmd) {
   }
   if (cmd.startsWith("pump ")) {
     String arg = cmd.substring(String("pump ").length()); arg.trim();
-    if (arg == "off") { pumpUs = ESC_SAFE_US; applyOutputs(); Serial.println("PUMP OFF."); return; }
+    if (arg == "off") {
+      pumpUs = ESC_SAFE_US;
+      bool wasValveOpen = valve1Cmd || valve2Cmd;
+      valve1Cmd = false; valve2Cmd = false;
+      applyOutputs();
+      if (wasValveOpen) Serial.println("EV:A01");
+      else Serial.println("PUMP OFF");
+      sendWebStatus();
+      return;
+    }
     int us = arg.toInt();
-    if (us < ESC_MIN_US || us > ESC_MAX_US) { Serial.println("ERROR: pump 1000..2000"); return; }
-    pumpUs = us; applyOutputs();
-    Serial.print("PUMP HOLD at "); Serial.print(us); Serial.println("us"); return;
+    if (us < ESC_MIN_US || us > ESC_MAX_US) { Serial.println("ERR:PUMP_RANGE"); return; }
+    
+    // KHÓA AN TOÀN: Không cho bật Bơm nếu cả 2 van nhiên liệu đang đóng
+    if (us > ESC_SAFE_US && !valve1Cmd && !valve2Cmd) {
+      Serial.println("ERR:E01");
+      sendWebStatus();
+      return;
+    }
+
+    pumpUs = us;
+    if (pumpUs <= ESC_SAFE_US) {
+      bool wasValveOpen = valve1Cmd || valve2Cmd;
+      valve1Cmd = false; valve2Cmd = false;
+      if (wasValveOpen) Serial.println("EV:A01");
+    }
+    applyOutputs();
+    Serial.print("PUMP="); Serial.println(us); return;
   }
-  if (cmd == "ign on")  { ignCmd = true;  applyOutputs(); Serial.println("IGN ON.");  return; }
-  if (cmd == "ign off") { ignCmd = false; applyOutputs(); Serial.println("IGN OFF."); return; }
-  if (cmd == "valve1 on")  { valve1Cmd = true;  applyOutputs(); Serial.println("VALVE1 ON.");  return; }
-  if (cmd == "valve1 off") { valve1Cmd = false; applyOutputs(); Serial.println("VALVE1 OFF."); return; }
-  if (cmd == "valve2 on")  { valve2Cmd = true;  applyOutputs(); Serial.println("VALVE2 ON.");  return; }
-  if (cmd == "valve2 off") { valve2Cmd = false; applyOutputs(); Serial.println("VALVE2 OFF."); return; }
+  if (cmd == "ign on")  { ignCmd = true;  applyOutputs(); Serial.println("IGN ON");  return; }
+  if (cmd == "ign off") { ignCmd = false; applyOutputs(); Serial.println("IGN OFF"); return; }
+  if (cmd == "valve1 on")  { valve1Cmd = true;  applyOutputs(); Serial.println("VALVE1 ON");  return; }
+  if (cmd == "valve1 off") { 
+    valve1Cmd = false; 
+    if (!valve1Cmd && !valve2Cmd && pumpUs > ESC_SAFE_US) {
+      pumpUs = ESC_SAFE_US;
+      Serial.println("EV:A02");
+    } else {
+      Serial.println("VALVE1 OFF"); 
+    }
+    applyOutputs(); sendWebStatus(); return; 
+  }
+  if (cmd == "valve2 on")  { valve2Cmd = true;  applyOutputs(); Serial.println("VALVE2 ON");  return; }
+  if (cmd == "valve2 off") { 
+    valve2Cmd = false; 
+    if (!valve1Cmd && !valve2Cmd && pumpUs > ESC_SAFE_US) {
+      pumpUs = ESC_SAFE_US;
+      Serial.println("EV:A02");
+    } else {
+      Serial.println("VALVE2 OFF"); 
+    }
+    applyOutputs(); sendWebStatus(); return; 
+  }
 
   if (cmd == "esccal start") {
     escCalActive = true;
@@ -964,10 +1017,10 @@ void handleCommand(String cmd) {
   }
 
   if (cmd == "estop" || cmd == "coolstop") {
-    emergencyStop(); Serial.println("EMERGENCY STOP: FUEL/IGN OFF, STARTER PURGING."); return;
+    emergencyStop(); Serial.println("EV:A03"); return;
   }
   if (cmd == "alloff" || cmd == "stop" || cmd == "off" || cmd == "shutdown") { 
-    allOff(); Serial.println("ALL OUTPUTS SAFE (TOTAL SHUTDOWN)."); return; 
+    allOff(); Serial.println("EV:A05"); return; 
   }
   if (cmd == "savecfg") { 
     if (saveConfigToSd()) {
@@ -1029,7 +1082,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 4.6");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 5.3");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;
@@ -1053,7 +1106,7 @@ void updateButton() {
     if (!longPressTriggered && (now - btnPressStartMs >= 3000)) {
       longPressTriggered = true;
       allOff();
-      Serial.println("-> [BUTTON LONG PRESS >= 3s]: FULL SHUTDOWN (ALL OFF).");
+      Serial.println("EV:A05");
       sendWebStatus();
     }
   }

@@ -54,7 +54,7 @@ Chứa các file STL cho các bộ phận cơ học có thể in 3D.
 - `../../PROJECT_CURRENT/Hardware/ECU_JET_20260723.net` - Netlist mạch ECU mới nhất (gồm cả RPM sensor)
 - `../../PROJECT_CURRENT/Hardware/SCH_MinijetengineECU_20260723.json` - Current ECU design schema
 
-These are reference files from the current system implementation (ManualV1 v4.3) and can be used as guidelines for future designs.
+These are reference files from the current system implementation (ManualV1 v5.3) and can be used as guidelines for future designs.
 
 ## 🚀 Assembly Notes
 
@@ -79,7 +79,7 @@ These are reference files from the current system implementation (ManualV1 v4.3)
 | Rev 11 | - | SD Card, dual-core processing, major redesign |
 | Rev 12 TC10 | Legacy | Multi-sensor support, Kero start |
 | TestV1_EGT_DRY_START | Legacy | Firmware cũ, có Auto-start, WiFi |
-| ManualV1 (v4.3) | Current | Bản hiện tại, Manual Serial Control, Không WiFi |
+| ManualV1 (v5.3) | Current | Bản hiện tại, Manual Serial Control, Compact Event Codes, Interlock & Toast Banners |
 
 ---
 

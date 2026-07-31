@@ -1,7 +1,7 @@
-# PROJECT_CURRENT — ECU Manual V1 (Version 4.3)
+# PROJECT_CURRENT — ECU Manual V1 (Version 5.3)
 
-**Trạng thái**: Đang phát triển tích cực  
-**Cập nhật**: 2026-07-31
+**Trạng thái**: Đang phát triển tích cực (Phiên bản v5.3)  
+**Cập nhật**: 2026-07-31  
 
 ---
 
@@ -11,10 +11,10 @@
 PROJECT_CURRENT/
 │
 ├── Firmware/ECU_ManualV1/
-│   └── ECU_ManualV1.ino           ← Firmware ESP32 (Arduino IDE)
+│   └── ECU_ManualV1.ino           ← Firmware ESP32 (Arduino IDE, v5.3)
 │
 ├── Tools/
-│   └── index.html                 ← Web Dashboard (Chrome/Edge, Web Serial API)
+│   └── index.html                 ← Web Dashboard (Chrome/Edge, Web Serial API, v5.3)
 │
 ├── Hardware/
 │   ├── ECU_JET_20260723.net       ← Netlist PCB (PADS)
@@ -45,14 +45,35 @@ PROJECT_CURRENT/
 
 ---
 
-## Tính Năng Chính (v4.3)
+## Tính Năng Chính (v5.3)
 
-- **Web Serial API**: Điều khiển mượt mà, không độ trễ mạng
-- **Bảo mật CRC-8**: Chống nhiễu lệnh từ motor/ESC qua UART
-- **Bộ Lọc RPM 7 Tầng**: Min Pulse → Dynamic Mask 75% → Median-5 → Dynamic Outlier Guard → Rate Limiter → Adaptive PWM-Aware Learning (Monotonicity Constraint + 2s Hysteresis) → Cascaded Dual-EMA Bậc 2
-- **3 Luồng RPM**: `RRPM` (thô 100%), `FRPM` (trigger), `RPM` (hiển thị)
-- **Dự báo EGT 3s** (`PEGT`): Cảnh báo Hot-Start
-- **Lưu/nạp cấu hình SD Card**: `savecfg` / `loadcfg`
+- **Web Serial API & CRC-8**: Điều khiển mượt mà, chống nhiễu lệnh UART bằng mã CRC-8.
+- **Bộ Lọc RPM 7 Tầng**: Min Pulse → Dynamic Mask 75% → Median-5 → Dynamic Outlier Guard → Rate Limiter → Adaptive PWM-Aware Learning (Monotonicity Floor + Hysteresis) → Cascaded Dual-EMA Bậc 2.
+- **Dừng Khẩn Cấp Thổi Khí Nóng (`estop`)**: Ngắt Bơm/Lửa/Van nhưng tự động bật/giữ Mô-tơ Đề 1300 µs để làm mát buồng đốt khi EGT > 80°C.
+- **Nút Cứng Vật Lý Đa Năng (`BTN1` / IO22)**:
+  - Nhấp 1 lần (< 3s): Kích hoạt Dừng Khẩn Cấp làm mát.
+  - Nhấn giữ 3s (>= 3s): Dừng Toàn Bộ (Full Shutdown, ngắt cả Đề).
+- **Khóa An Toàn 2 Chiều (Pump-Valve Interlock)**:
+  - Không cho bật Bơm khi cả 2 van nhiên liệu đang ĐÓNG (`ERR:E01`).
+  - Tự động ngắt Bơm khi cả 2 van bị đóng (`EV:A02`).
+  - Tự động đóng cả 2 van khi tắt Bơm (`EV:A01`).
+- **Bảo Vệ Chống Bùng Nhiệt (`PEGT > 740°C`)**: Tự động ngắt Bơm & xả mát khi nhiệt độ dự báo 3s vượt 740°C (`ERR:E02`).
+- **Tối Ưu Tài Nguyên ESP32 (Compact Event/Error Codes)**: ECU chỉ phát các mã siêu nhẹ (`EV:A01`..`EV:A05`, `ERR:E01`..`ERR:E02`) qua Serial; Web UI tự động dịch thành Thẻ Banner Thông Báo Tiếng Việt nổi bật.
+- **Heartbeat Status LED (IO2)**: Nháy 1Hz báo hiệu ECU đang hoạt động.
+
+---
+
+## Bảng Mã Sự Kiện & Mã Lỗi (Event Code Dictionary)
+
+| Mã Serial | Loại | Ý Nghĩa | Thông Báo Tiếng Việt Hiển Thị Trên Web Dashboard |
+|-----------|------|---------|--------------------------------------------------|
+| `ERR:E01` | Cảnh báo | Bật Bơm khi cả 2 van đóng | `⚠️ CẢNH BÁO AN TOÀN: Cả 2 van nhiên liệu đều đang ĐÓNG! Vui lòng mở ít nhất 1 van trước.` |
+| `ERR:E02` | Khẩn cấp | Quá nhiệt dự báo PEGT > 740°C | `🛑 CẢNH BẢO QUÁ NHIỆT: Dự báo PEGT 3s vượt 740°C! Đã tự động NGẮT BƠM & THỔI LÀM MÁT.` |
+| `EV:A01`  | Thông tin | Tắt Bơm -> Tự đóng 2 van | `ℹ️ TỰ ĐỘNG KHÓA: Đã Tắt Bơm -> Tự động đóng cả 2 Van nhiên liệu (V1 & V2).` |
+| `EV:A02`  | Thông tin | Đóng 2 van -> Tự ngắt Bơm | `ℹ️ TỰ ĐỘNG KHÓA: Đã đóng cả 2 Van -> Tự động ngắt Bơm nhiên liệu.` |
+| `EV:A03`  | Khẩn cấp | Dừng Khẩn Cấp -> Thổi khí 1300µs | `🛑 DỪNG KHẨN CẤP: Ngắt Bơm & Lửa/Van -> Tự động bật Đề 1300µs thổi khí làm mát.` |
+| `EV:A04`  | Thông tin | Dừng Khẩn Cấp -> Máy nguội <= 80°C | `ℹ️ DỪNG KHẨN CẤP: Đã ngắt Bơm & Lửa/Van (Máy đã nguội <= 80°C).` |
+| `EV:A05`  | Khẩn cấp | Nút 3s / Dừng Toàn Bộ | `⚡ DỪNG TOÀN BỘ: Đã ngắt 100% tất cả thiết bị (Bơm, Đề, Lửa, Van).` |
 
 ---
 
@@ -67,8 +88,8 @@ PROJECT_CURRENT/
 | Valve 1 / Valve 2 | 17 / 16 |
 | Ignition/Glow | 32 |
 | SD CS/SCK/MOSI/MISO | 13 / 14 / 23 / 27 |
-| User Button (BTN1) | 22 |
-| Status LED | 2 |
+| User Button (BTN1) | 22 (Active LOW) |
+| Status LED | 2 (Heartbeat 1Hz) |
 | GSU / Debug UART | 1 (TX) / 3 (RX) |
 | RC Input 1 / 2 | 34 / 35 |
 
@@ -80,3 +101,4 @@ PROJECT_CURRENT/
 - Chỉ dùng **thermocouple loại K**
 - Cảm biến RPM KMZ10A cần hiệu chỉnh trimpot **RP1/RP2/RP3** trước khi dùng
 - ESP32 cần nguồn điện riêng (không cấp qua USB khi motor chạy)
+

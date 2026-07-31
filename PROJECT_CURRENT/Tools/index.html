@@ -209,18 +209,71 @@
       color: #00adb5;
     }
 
-    @keyframes blinkWarning { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
-    #disconnectOverlay {
-      display: none;
-      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(255, 0, 0, 0.85);
-      z-index: 9999; color: white;
-      align-items: center; justify-content: center; flex-direction: column;
+    /* TOAST NOTIFICATION BANNER SYSTEM */
+    #toastContainer {
+      position: fixed;
+      top: 25px;
+      right: 25px;
+      z-index: 10000;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-width: 450px;
+      pointer-events: none;
+    }
+
+    .toast-banner {
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 18px;
+      border-radius: 8px;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
+      animation: slideInRight 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+      transition: all 0.3s ease;
+      line-height: 1.4;
+    }
+
+    .toast-banner.toast-info {
+      background: linear-gradient(135deg, rgba(0, 173, 181, 0.95), rgba(15, 76, 92, 0.95));
+      border-left: 5px solid #00fff0;
+    }
+
+    .toast-banner.toast-warning {
+      background: linear-gradient(135deg, rgba(230, 126, 34, 0.95), rgba(184, 88, 10, 0.95));
+      border-left: 5px solid #f39c12;
+    }
+
+    .toast-banner.toast-danger {
+      background: linear-gradient(135deg, rgba(214, 48, 49, 0.95), rgba(146, 21, 22, 0.95));
+      border-left: 5px solid #ff7675;
+      animation: slideInRight 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards, pulseDanger 1.5s infinite;
+    }
+
+    @keyframes slideInRight {
+      from { transform: translateX(120%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes fadeOutRight {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(120%); opacity: 0; }
+    }
+    @keyframes pulseDanger {
+      0% { box-shadow: 0 0 0 0 rgba(214, 48, 49, 0.7); }
+      70% { box-shadow: 0 0 0 12px rgba(214, 48, 49, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(214, 48, 49, 0); }
     }
   </style>
 </head>
 
 <body>
+  
+  <div id="toastContainer"></div>
   
   <div id="disconnectOverlay">
     <h1 style="font-size: 4rem; margin-bottom: 20px; animation: blinkWarning 1s infinite; text-align: center;">⚠️ MẤT KẾT NỐI VỚI ECU ⚠️</h1>
@@ -228,7 +281,7 @@
   </div>
 
   <div class="header">
-    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v4.6 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
+    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v5.3 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
     <div style="display:flex; gap:10px;">
       <button id="connectBtn" class="btn">🔌 Kết Nối USB COM</button>
       <button id="disconnectBtn" class="btn btn-danger" style="display:none;">❌ Ngắt Kết Nối</button>
@@ -569,9 +622,35 @@
       sendCmd('starter off');
     }
 
+    function showToast(message, type = 'info', durationMs = 5000) {
+      const container = document.getElementById('toastContainer');
+      if (!container) return;
+
+      const toast = document.createElement('div');
+      toast.className = `toast-banner toast-${type}`;
+      
+      let icon = 'ℹ️';
+      if (type === 'warning') icon = '⚠️';
+      if (type === 'danger') icon = '🛑';
+
+      toast.innerHTML = `<span style="font-size: 1.4rem;">${icon}</span><div>${message}</div>`;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.animation = 'fadeOutRight 0.4s ease forwards';
+        setTimeout(() => { toast.remove(); }, 400);
+      }, durationMs);
+    }
+
     let lastPumpSendTime = 0;
     let pumpThrottleTimer = null;
     function updatePumpFromSlider(val) {
+      if (parseInt(val) > 1000 && !v1State && !v2State) {
+        showToast("CẢNH BÁO AN TOÀN: Cả 2 van nhiên liệu (Valve 1 & Valve 2) đều đang ĐÓNG! Vui lòng mở ít nhất 1 van nhiên liệu trước khi bật Bơm.", "warning", 6000);
+        document.getElementById('pumpSlider').value = 1000;
+        document.getElementById('pumpUsVal').innerText = "1000 µs";
+        return;
+      }
       document.getElementById('pumpUsVal').innerText = val + " µs";
       const now = Date.now();
       
@@ -617,6 +696,10 @@
       if (pumpThrottleTimer) clearTimeout(pumpThrottleTimer);
       document.getElementById('pumpSlider').value = 1000;
       document.getElementById('pumpUsVal').innerText = "1000 µs";
+      v1State = false; v2State = false;
+      setDot('dotV1', false); setDot('dotV2', false);
+      logConsole("ℹ️ [TỰ ĐỘNG]: Tắt Bơm -> Đã tự động đóng cả 2 Van nhiên liệu (V1 & V2).");
+      showToast("TỰ ĐỘNG KHÓA: Đã Tắt Bơm -> Tự động đóng cả 2 Van nhiên liệu (V1 & V2).", "warning", 5000);
       sendCmd('pump off');
     }
 
@@ -652,6 +735,8 @@
       lastStarterSendTime = Date.now();
       lastPumpSendTime = Date.now();
       if (typeof lastToggleTime !== 'undefined') lastToggleTime = Date.now();
+      logConsole("🛑 [DỪNG KHẨN CẤP]: Ngắt Bơm & Đánh lửa/Van -> Tự động bật Đề thổi khí làm mát (nếu EGT > 80°C).");
+      showToast("DỪNG KHẨN CẤP: Ngắt Bơm & Đánh lửa/Van -> Tự động bật Đề 1300µs thổi khí làm mát (nếu EGT > 80°C).", "danger", 6000);
       sendCmd('estop');
     }
 
@@ -668,6 +753,8 @@
       lastStarterSendTime = Date.now();
       lastPumpSendTime = Date.now();
       if (typeof lastToggleTime !== 'undefined') lastToggleTime = Date.now();
+      logConsole("⚡ [DỪNG TOÀN BỘ]: Đã ngắt 100% tất cả Output (Bơm, Đề, Lửa, Van).");
+      showToast("DỪNG TOÀN BỘ: Đã ngắt 100% tất cả thiết bị (Bơm, Đề, Lửa, Van).", "danger", 6000);
       sendCmd('alloff');
     }
 
@@ -720,6 +807,24 @@
                 parseEcuConfig(line);
               }
               logConsole("RX <- " + line);
+
+              // TRA BẢNG MÃ LỖI / SỰ KIỆN TỰ ĐỘNG ĐỂ HIỂN THỊ BANNER TIẾNG VIỆT
+              const CODE_DICT = {
+                'ERR:E01': { msg: 'CẢNH BÁO AN TOÀN: Cả 2 van nhiên liệu (V1 & V2) đều đang ĐÓNG! Vui lòng mở ít nhất 1 van trước khi bật Bơm.', type: 'warning' },
+                'ERR:E02': { msg: 'CẢNH BÁO QUÁ NHIỆT: Dự báo PEGT 3s vượt 740°C! Đã tự động NGẮT BƠM & THỔI LÀM MÁT BUỒNG ĐỐT.', type: 'danger' },
+                'EV:A01':  { msg: 'TỰ ĐỘNG KHÓA: Đã Tắt Bơm -> Tự động đóng cả 2 Van nhiên liệu (V1 & V2).', type: 'info' },
+                'EV:A02':  { msg: 'TỰ ĐỘNG KHÓA: Đã đóng cả 2 Van -> Tự động ngắt Bơm nhiên liệu.', type: 'info' },
+                'EV:A03':  { msg: 'DỪNG KHẨN CẤP: Ngắt Bơm & Lửa/Van -> Tự động bật Đề 1300µs thổi khí làm mát.', type: 'danger' },
+                'EV:A04':  { msg: 'DỪNG KHẨN CẤP: Đã ngắt Bơm & Lửa/Van (Máy đã nguội <= 80°C).', type: 'info' },
+                'EV:A05':  { msg: 'DỪNG TOÀN BỘ: Đã ngắt 100% tất cả thiết bị (Bơm, Đề, Lửa, Van).', type: 'danger' }
+              };
+
+              for (let codeKey in CODE_DICT) {
+                if (line.includes(codeKey)) {
+                  showToast(CODE_DICT[codeKey].msg, CODE_DICT[codeKey].type, 6000);
+                  break;
+                }
+              }
             }
           }
         }
