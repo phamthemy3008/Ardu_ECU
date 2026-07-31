@@ -727,11 +727,18 @@ void applyOutputs() {
   pumpUs = constrain(pumpUs, ESC_MIN_US, ESC_MAX_US);
   startUs = constrain(startUs, ESC_MIN_US, ESC_MAX_US);
   static int lastPumpUs = -1, lastStartUs = -1;
+  static int8_t lastIgn = -1, lastV1 = -1, lastV2 = -1;
+
   if (pumpUs != lastPumpUs) { escWriteUs(PIN_ESC_PUMP, LEDC_CH_PUMP, pumpUs, escPumpPeriodUs); lastPumpUs = pumpUs; }
   if (startUs != lastStartUs) { escWriteUs(PIN_ESC_START, LEDC_CH_START, startUs, escStartPeriodUs); lastStartUs = startUs; }
-  digitalWrite(PIN_IGN, (ignCmd == IGN_ACTIVE_HIGH) ? HIGH : LOW);
-  digitalWrite(PIN_VALVE_1, (valve1Cmd == VALVE_ACTIVE_HIGH) ? HIGH : LOW);
-  digitalWrite(PIN_VALVE_2, (valve2Cmd == VALVE_ACTIVE_HIGH) ? HIGH : LOW);
+  
+  int curIgn = (ignCmd == IGN_ACTIVE_HIGH) ? HIGH : LOW;
+  int curV1  = (valve1Cmd == VALVE_ACTIVE_HIGH) ? HIGH : LOW;
+  int curV2  = (valve2Cmd == VALVE_ACTIVE_HIGH) ? HIGH : LOW;
+
+  if (curIgn != lastIgn) { digitalWrite(PIN_IGN, curIgn); lastIgn = curIgn; }
+  if (curV1 != lastV1)   { digitalWrite(PIN_VALVE_1, curV1); lastV1 = curV1; }
+  if (curV2 != lastV2)   { digitalWrite(PIN_VALVE_2, curV2); lastV2 = curV2; }
 }
 
 void allOff() {
@@ -786,7 +793,7 @@ void sendWebStatus() {
   Serial.print(" | SD="); Serial.print(sdOk ? "OK" : "-");
   if (rpmCalMode) Serial.print(" | RPMCAL");
   Serial.print(" | ALEARN="); Serial.print(starterLearnedBins); Serial.print("/"); Serial.print(PWM_BIN_COUNT);
-  Serial.print(" | VER=4.2");
+  Serial.print(" | VER=4.3");
   Serial.println();
 }
 
@@ -1001,7 +1008,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 4.2");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 4.3");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;
