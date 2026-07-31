@@ -253,7 +253,11 @@ bool allOutputsOff() {
 
 bool rpmAtRestGuardCondition() {
   if (rpmCalMode) return false;
-  return allOutputsOff();
+  if (!allOutputsOff()) return false;
+  // Chỉ kích hoạt Rest Guard khi tất cả output OFF VÀ động cơ đã dừng hẳn (< 500 RPM)
+  // Giúp động cơ tự quay/coasting không bị ngắt RPM về 0 đột ngột khi vừa tắt Đề
+  if (rpmData.rpmFiltered > 500.0f || rpmData.rpm > 500.0f) return false;
+  return true;
 }
 
 RpmNoiseLevel classifyRpmNoise(bool recent, uint32_t raw, uint32_t accepted, uint32_t rejected,
@@ -459,8 +463,23 @@ void updateRpm() {
   } else {
     rpmData.noise = classifyRpmNoise(rpmData.signalRecent, raw, accepted, rejected,
                                      rpmData.rejectPct, rpmData.jitterPct, rpmData.rpmDiffPct, validN);
-    // Outlier Spike Rejection: Starter Outlier Guard (max 20k RPM during cranking) & Jet Engine Max limit (160k RPM)
-    float maxAllowedRpm = (startUs > ESC_SAFE_US && rpmData.rpmFiltered < 15000.0f) ? 20000.0f : 160000.0f;
+    
+    // Theo dõi giai đoạn chuyển tiếp khi vừa ngắt Mô-tơ Đề (2 giây đầu sau khi tắt Đề)
+    static uint32_t lastStarterActiveMs = 0;
+    if (startUs > ESC_SAFE_US) {
+      lastStarterActiveMs = nowMs;
+    }
+    bool inStarterTransition = (nowMs - lastStarterActiveMs < 2000);
+
+    // Dynamic Outlier Guard: Ngưỡng trần linh hoạt theo RPM hiện tại thay vì nhảy vọt 160k
+    float maxAllowedRpm;
+    if (rpmData.rpmFiltered < 5000.0f) {
+      maxAllowedRpm = (startUs > ESC_SAFE_US || inStarterTransition) ? 15000.0f : 20000.0f;
+    } else if (rpmData.rpmFiltered < 25000.0f) {
+      maxAllowedRpm = max(30000.0f, rpmData.rpmFiltered * 1.8f);
+    } else {
+      maxAllowedRpm = max(50000.0f, min(160000.0f, rpmData.rpmFiltered * 1.6f));
+    }
 
     // Tính RPM trung bình vi-mô từ tổng thời gian các xung hợp lệ trong 100ms (Microsecond Average RPM)
     float rawRpmCandidate = 0.0f;
@@ -479,7 +498,7 @@ void updateRpm() {
     // --- RATE LIMITER: Giới hạn tốc độ thay đổi RPM (slew rate) ---
     // Turbine jet không thể tăng/giảm quá nhanh. Nếu vượt ngưỡng → giữ giá trị cũ.
     if (rpmData.prevRawRpmCandidate > 0.0f && rawRpmCandidate > 0.0f) {
-      float maxSlew = (rpmData.prevRawRpmCandidate < 30000.0f) ? 5000.0f : 15000.0f; // RPM/100ms
+      float maxSlew = (inStarterTransition) ? 4000.0f : ((rpmData.prevRawRpmCandidate < 30000.0f) ? 5000.0f : 15000.0f);
       float delta = rawRpmCandidate - rpmData.prevRawRpmCandidate;
       if (delta > maxSlew) rawRpmCandidate = rpmData.prevRawRpmCandidate + maxSlew;
       else if (delta < -maxSlew) rawRpmCandidate = rpmData.prevRawRpmCandidate - maxSlew;
@@ -487,17 +506,16 @@ void updateRpm() {
     rpmData.prevRawRpmCandidate = rawRpmCandidate;
 
     // --- ADAPTIVE PWM-AWARE FILTER: Lọc dựa trên mô hình vật lý ---
-    // Nếu starter đang chạy: dùng dữ liệu đã học để loại bỏ RPM bất hợp lý
-    if (startUs > ESC_SAFE_US) {
-      int currentBinIdx = pwmToBinIndex(startUs);
+    // Nếu starter đang chạy hoặc mới ngắt Đề: dùng dữ liệu đã học để loại bỏ RPM bất hợp lý
+    if (startUs > ESC_SAFE_US || inStarterTransition) {
+      int currentBinIdx = (startUs > ESC_SAFE_US) ? pwmToBinIndex(startUs) : pwmToBinIndex(1100);
 
-      // PHASE 1 - HỌC: Khi tín hiệu sạch, ghi nhớ cặp (PWM, RPM)
-      if (rpmData.noise <= RPM_WARN && rawRpmCandidate > 100.0f) {
+      // PHASE 1 - HỌC: Khi tín hiệu sạch và đang đề, ghi nhớ cặp (PWM, RPM)
+      if (startUs > ESC_SAFE_US && rpmData.noise <= RPM_WARN && rawRpmCandidate > 100.0f) {
         learnStarterRpm(startUs, rawRpmCandidate);
       }
 
       // PHASE 2 - LỌC: Ràng buộc đơn điệu (Monotonicity Floor)
-      // PWM cao hơn PHẢI có RPM >= RPM của bin thấp hơn. Vi phạm → nhiễu.
       float rpmFloor = getMonotonicFloor(currentBinIdx);
       if (rpmFloor > 0.0f && rawRpmCandidate > 0.0f && rawRpmCandidate < rpmFloor * 0.85f) {
         float snapTarget = (getExpectedStarterRpm(startUs) > 0.0f) ? getExpectedStarterRpm(startUs) : rpmFloor;
@@ -508,30 +526,33 @@ void updateRpm() {
       // PHASE 3 - LỌC: Tolerance window từ dữ liệu đã học
       float expectedRpm = getExpectedStarterRpm(startUs);
       if (expectedRpm > 0.0f && rawRpmCandidate > 0.0f) {
-        // Tolerance co dần khi confidence tăng: bắt đầu ±50%, siết xuống ±25%
         uint16_t n = starterRpmMap[currentBinIdx].sampleCount;
         float tolerance = (n < PWM_BIN_MIN_TRUST) ? 0.50f : max(0.25f, 0.50f - (float)(n - PWM_BIN_MIN_TRUST) * 0.001f);
         float lo = expectedRpm * (1.0f - tolerance);
         float hi = expectedRpm * (1.0f + tolerance);
-        // Sàn đơn điệu luôn ưu tiên hơn tolerance lo
         if (rpmFloor > 0.0f && lo < rpmFloor * 0.85f) lo = rpmFloor * 0.85f;
         if (rawRpmCandidate < lo || rawRpmCandidate > hi) {
-          rawRpmCandidate = expectedRpm; // Snap về giá trị kỳ vọng
-          rpmData.prevRawRpmCandidate = expectedRpm; // Đồng bộ Rate Limiter tránh lệch chu kỳ sau
+          rawRpmCandidate = expectedRpm;
+          rpmData.prevRawRpmCandidate = expectedRpm;
         }
       }
     }
 
     // --- CASCADED DUAL-EMA bậc 2: Lọc 2 tầng nối tiếp ---
-    // Tầng 1 (rpmStage1): Lọc thô, phản hồi nhanh
-    // Tầng 2 (rpm): Lọc tinh, loại bỏ spike triệt để
+    // Chọn hệ số lọc mềm mại dựa trên trạng thái Đề, Chuyển tiếp & Nhiễu
+    float alpha1, alpha2, alphaTrigger;
+    if (startUs > ESC_SAFE_US || inStarterTransition) {
+      alpha1 = 0.12f; alpha2 = 0.35f; alphaTrigger = 0.08f; // Đề / chuyển tiếp: Lọc cực mạnh
+    } else if (rpmData.noise >= RPM_WARN || rpmData.rpmFiltered < 25000.0f) {
+      alpha1 = 0.18f; alpha2 = 0.40f; alphaTrigger = 0.15f; // Tự quay dải thấp / nhiễu: Lọc vừa
+    } else {
+      alpha1 = 0.30f; alpha2 = 0.50f; alphaTrigger = 0.25f; // Tự quay dải cao & sạch: Lọc nhanh
+    }
+
     if (rpmData.rpmStage1 == 0.0f && rawRpmCandidate > 0.0f) {
       rpmData.rpmStage1 = rawRpmCandidate;
       rpmData.rpm = rawRpmCandidate;
     } else {
-      // Khi Mô-tơ đề chạy: alpha cực nhỏ chà phẳng EMI. Khi tắt đề: phản hồi nhanh.
-      float alpha1 = (startUs > ESC_SAFE_US) ? 0.12f : 0.30f; // Tầng 1
-      float alpha2 = (startUs > ESC_SAFE_US) ? 0.35f : 0.50f; // Tầng 2
       rpmData.rpmStage1 = (alpha1 * rawRpmCandidate) + ((1.0f - alpha1) * rpmData.rpmStage1);
       rpmData.rpm = (alpha2 * rpmData.rpmStage1) + ((1.0f - alpha2) * rpmData.rpm);
     }
@@ -546,7 +567,6 @@ void updateRpm() {
     if (rpmData.rpmFiltered == 0.0f && rawTriggerTarget > 0.0f) {
       rpmData.rpmFiltered = rawTriggerTarget;
     } else {
-      float alphaTrigger = (startUs > ESC_SAFE_US) ? 0.08f : 0.25f; // Ép mượt tuyệt đối (0.08) cho Trigger khi đang đề
       rpmData.rpmFiltered = (alphaTrigger * rawTriggerTarget) + ((1.0f - alphaTrigger) * rpmData.rpmFiltered);
     }
     if (rawTriggerTarget == 0.0f || rpmData.rpm == 0.0f) {
@@ -766,7 +786,7 @@ void sendWebStatus() {
   Serial.print(" | SD="); Serial.print(sdOk ? "OK" : "-");
   if (rpmCalMode) Serial.print(" | RPMCAL");
   Serial.print(" | ALEARN="); Serial.print(starterLearnedBins); Serial.print("/"); Serial.print(PWM_BIN_COUNT);
-  Serial.print(" | VER=4.1");
+  Serial.print(" | VER=4.2");
   Serial.println();
 }
 
@@ -981,7 +1001,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 4.1");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 4.2");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;
