@@ -228,7 +228,7 @@
   </div>
 
   <div class="header">
-    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v4.5 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
+    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v4.6 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
     <div style="display:flex; gap:10px;">
       <button id="connectBtn" class="btn">🔌 Kết Nối USB COM</button>
       <button id="disconnectBtn" class="btn btn-danger" style="display:none;">❌ Ngắt Kết Nối</button>
@@ -639,11 +639,13 @@
       if (pumpThrottleTimer) clearTimeout(pumpThrottleTimer);
       document.getElementById('pumpSlider').value = 1000;
       document.getElementById('pumpUsVal').innerText = "1000 µs";
-      let startVal = parseInt(document.getElementById('starterCustomVal').value) || 1200;
       let currentStart = parseInt(document.getElementById('starterSlider').value) || 1000;
       if (currentStart <= 1000) {
-        document.getElementById('starterSlider').value = startVal;
-        document.getElementById('starterUsVal').innerText = startVal + " µs";
+        let egtVal = parseFloat(document.getElementById('egtVal').innerText) || 0;
+        if (egtVal > 80.0) {
+          document.getElementById('starterSlider').value = 1300;
+          document.getElementById('starterUsVal').innerText = "1300 µs";
+        }
       }
       ignState = false; v1State = false; v2State = false;
       setDot('dotIgn', false); setDot('dotV1', false); setDot('dotV2', false);

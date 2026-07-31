@@ -749,7 +749,9 @@ void emergencyStop() {
   pumpUs = ESC_SAFE_US;
   ignCmd = false; valve1Cmd = false; valve2Cmd = false;
   if (startUs <= ESC_SAFE_US) {
-    startUs = (startSetUs > ESC_SAFE_US) ? startSetUs : 1200;
+    if (egt.ok && egt.c > 80.0f) {
+      startUs = 1300; // Chỉ bật Đề thổi khí (1300us) nếu nhiệt độ EGT > 80°C
+    }
   }
   applyOutputs();
 }
@@ -807,7 +809,7 @@ void sendWebStatus() {
   Serial.print(" | SD="); Serial.print(sdOk ? "OK" : "-");
   if (rpmCalMode) Serial.print(" | RPMCAL");
   Serial.print(" | ALEARN="); Serial.print(starterLearnedBins); Serial.print("/"); Serial.print(PWM_BIN_COUNT);
-  Serial.print(" | VER=4.5");
+  Serial.print(" | VER=4.6");
   Serial.println();
 }
 
@@ -1027,7 +1029,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 4.5");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 4.6");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;
