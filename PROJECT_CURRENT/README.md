@@ -67,6 +67,10 @@ PROJECT_CURRENT/
 | Valve 1 / Valve 2 | 17 / 16 |
 | Ignition/Glow | 32 |
 | SD CS/SCK/MOSI/MISO | 13 / 14 / 23 / 27 |
+| User Button (BTN1) | 22 |
+| Status LED | 2 |
+| GSU / Debug UART | 1 (TX) / 3 (RX) |
+| RC Input 1 / 2 | 34 / 35 |
 
 ---
 
