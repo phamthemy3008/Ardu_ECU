@@ -1,7 +1,7 @@
-# ECU TestV1 Firmware — Code Architecture & Understanding Guide
+# ECU Manual V1 Firmware — Code Architecture & Understanding Guide
 
-**Firmware**: `ECU_TestV1_EGT_DRY_START_PATCH.ino`
-**Size**: ~2,400 lines
+**Firmware**: `ECU_ManualV1.ino` (Version 4.2)
+**Tools**: `index.html` (Web Serial Dashboard)
 **Platform**: ESP32 (NodeMCU-32S), Arduino core 2.x **or** 3.x
 **Language**: Arduino C++
 
