@@ -10,8 +10,7 @@ Chứa tất cả các tệp sơ đồ và thiết kế mạch điện.
 **Files**:
 - `ECU Rev9-10 Schematic.pdf` - Schema cho Rev 9 và 10
 - `Schematic_Ardu ECU_Rev 11.pdf` - Schema cho Rev 11 (ổn định hiện tại)
-- `RPM_Sensor_20260709.net` - Tham khảo schema cảm biến RPM
-- `SCH_MinijetengineECU_20260709.json` - Tham khảo schema ECU
+*(Lưu ý: Các file schema mới nhất nằm trong thư mục `../../PROJECT_CURRENT/Hardware/`)*
 
 ### **Components/** - Linh kiện và tài liệu
 Chứa hình ảnh và thông số kỹ thuật của các linh kiện được sử dụng.
@@ -51,11 +50,11 @@ Chứa các file STL cho các bộ phận cơ học có thể in 3D.
 
 ## 📐 Design Files
 
-### **Latest Reference Files** (2026-07-16):
-- `RPM_Sensor_20260709.net` - RPM sensor circuit reference
-- `SCH_MinijetengineECU_20260709.json` - Current ECU design schema
+### **Latest Reference Files** (2026-07-23):
+- `../../PROJECT_CURRENT/Hardware/ECU_JET_20260723.net` - Netlist mạch ECU mới nhất (gồm cả RPM sensor)
+- `../../PROJECT_CURRENT/Hardware/SCH_MinijetengineECU_20260723.json` - Current ECU design schema
 
-These are reference files from the current system implementation and can be used as guidelines for future designs.
+These are reference files from the current system implementation (ManualV1 v4.3) and can be used as guidelines for future designs.
 
 ## 🚀 Assembly Notes
 
@@ -78,8 +77,9 @@ These are reference files from the current system implementation and can be used
 | Rev 9 | Early | Initial design |
 | Rev 10 | - | WiFi control, OLED display |
 | Rev 11 | - | SD Card, dual-core processing, major redesign |
-| Rev 12 TC10 | Current | Multi-sensor support, Kero start |
-| TestV1_EGT_DRY_START | Current | Latest features, dry-start mode |
+| Rev 12 TC10 | Legacy | Multi-sensor support, Kero start |
+| TestV1_EGT_DRY_START | Legacy | Firmware cũ, có Auto-start, WiFi |
+| ManualV1 (v4.3) | Current | Bản hiện tại, Manual Serial Control, Không WiFi |
 
 ---
 

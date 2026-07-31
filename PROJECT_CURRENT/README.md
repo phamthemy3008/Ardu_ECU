@@ -18,7 +18,7 @@ PROJECT_CURRENT/
 │
 ├── Hardware/
 │   ├── ECU_JET_20260723.net       ← Netlist PCB (PADS)
-│   └── SCH_Minijet...json         ← Sơ đồ mạch ECU (EasyEDA JSON)
+│   └── SCH_MinijetengineECU_20260723.json ← Sơ đồ mạch ECU (EasyEDA JSON)
 │
 ├── Docs/
 │   ├── JETENGINE_ECU_DESIGN_REFERENCE.md  ← Tài liệu thiết kế ECU
