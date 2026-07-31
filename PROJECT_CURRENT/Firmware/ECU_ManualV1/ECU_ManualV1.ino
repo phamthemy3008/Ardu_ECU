@@ -745,6 +745,15 @@ void applyOutputs() {
   if (curV2 != lastV2)   { digitalWrite(PIN_VALVE_2, curV2); lastV2 = curV2; }
 }
 
+void emergencyStop() {
+  pumpUs = ESC_SAFE_US;
+  ignCmd = false; valve1Cmd = false; valve2Cmd = false;
+  if (startUs <= ESC_SAFE_US) {
+    startUs = (startSetUs > ESC_SAFE_US) ? startSetUs : 1200;
+  }
+  applyOutputs();
+}
+
 void allOff() {
   pumpUs = ESC_SAFE_US; startUs = ESC_SAFE_US;
   ignCmd = false; valve1Cmd = false; valve2Cmd = false;
@@ -774,7 +783,8 @@ void printHelp() {
   Serial.println("ign on | ign off            -> igniter/glow");
   Serial.println("valve1 on|off | valve2 on|off");
   Serial.println("esccal start | esccal cancel -> ESC throttle-range calib");
-  Serial.println("alloff | stop               -> all outputs to safe");
+  Serial.println("estop                       -> emergency stop (fuel/ign off, starter purges)");
+  Serial.println("alloff | stop               -> all outputs to safe (total shutdown)");
   Serial.println("savecfg | loadcfg           -> save/reload sensor setup to SD");
 }
 
@@ -797,7 +807,7 @@ void sendWebStatus() {
   Serial.print(" | SD="); Serial.print(sdOk ? "OK" : "-");
   if (rpmCalMode) Serial.print(" | RPMCAL");
   Serial.print(" | ALEARN="); Serial.print(starterLearnedBins); Serial.print("/"); Serial.print(PWM_BIN_COUNT);
-  Serial.print(" | VER=4.4");
+  Serial.print(" | VER=4.5");
   Serial.println();
 }
 
@@ -951,8 +961,11 @@ void handleCommand(String cmd) {
     Serial.println("ESC CAL cancelled."); return;
   }
 
-  if (cmd == "alloff" || cmd == "stop" || cmd == "off") { 
-    allOff(); Serial.println("ALL OUTPUTS SAFE."); return; 
+  if (cmd == "estop" || cmd == "coolstop") {
+    emergencyStop(); Serial.println("EMERGENCY STOP: FUEL/IGN OFF, STARTER PURGING."); return;
+  }
+  if (cmd == "alloff" || cmd == "stop" || cmd == "off" || cmd == "shutdown") { 
+    allOff(); Serial.println("ALL OUTPUTS SAFE (TOTAL SHUTDOWN)."); return; 
   }
   if (cmd == "savecfg") { 
     if (saveConfigToSd()) {
@@ -993,6 +1006,7 @@ void setup() {
   pinMode(PIN_VALVE_2, OUTPUT); digitalWrite(PIN_VALVE_2, VALVE_ACTIVE_HIGH ? LOW : HIGH);
   
   pinMode(PIN_LED, OUTPUT);     digitalWrite(PIN_LED, LOW); // Heartbeat LED
+  pinMode(PIN_BUTTON, INPUT_PULLUP);                        // User Button (Active LOW)
   pinMode(PIN_RPM, INPUT);
 
   gpio_install_isr_service(0); // Cài đặt ISR service trước để tránh lỗi khi gọi attachInterrupt nhiều lần
@@ -1013,21 +1027,56 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 4.4");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 4.5");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;
 unsigned long lastHeartbeatMs = 0;
 bool ledState = false;
 
+static unsigned long btnPressStartMs = 0;
+static bool btnStateLast = HIGH;
+static bool longPressTriggered = false;
+
+void updateButton() {
+  bool curState = digitalRead(PIN_BUTTON);
+  uint32_t now = millis();
+
+  if (curState == LOW && btnStateLast == HIGH) {
+    btnPressStartMs = now;
+    longPressTriggered = false;
+  }
+
+  if (curState == LOW) {
+    if (!longPressTriggered && (now - btnPressStartMs >= 3000)) {
+      longPressTriggered = true;
+      allOff();
+      Serial.println("-> [BUTTON LONG PRESS >= 3s]: FULL SHUTDOWN (ALL OFF).");
+      sendWebStatus();
+    }
+  }
+
+  if (curState == HIGH && btnStateLast == LOW) {
+    uint32_t duration = now - btnPressStartMs;
+    if (duration >= 50 && duration < 3000 && !longPressTriggered) {
+      emergencyStop();
+      Serial.println("-> [BUTTON SHORT PRESS]: EMERGENCY PURGE STOP (Starter ON, Fuel/Ign OFF).");
+      sendWebStatus();
+    }
+  }
+
+  btnStateLast = curState;
+}
+
 void loop() {
   processSerialRx();
+  updateButton();
+
   if (escCalActive && escCalPhaseUntilMs > 0 && millis() >= escCalPhaseUntilMs) {
     startUs = ESC_MIN_US; pumpUs = ESC_MIN_US; applyOutputs();
     escCalPhaseUntilMs = 0; escCalActive = false;
     Serial.println("ESC CAL: dropped to MIN 1000us (done).");
   }
-
 
   updateRpm();
   updateEgt();
