@@ -245,11 +245,89 @@ const char* rpmNoiseName(RpmNoiseLevel n) {
 }
 const char* rpmEdgeName() { return (rpmEdgeMode == FALLING) ? "FALLING" : "RISING"; }
 
-// ---------------- Output state ----------------
+// ---------------- Output state & Ramp Control ----------------
 int pumpUs = ESC_SAFE_US, startUs = ESC_SAFE_US;
 int startSetUs = 1200, pumpSetUs = 1200;
 int startStepUs = 10, pumpStepUs = 10;
 bool ignCmd = false, valve1Cmd = false, valve2Cmd = false;
+
+// Ramp Settings
+bool pumpRampEnabled = true;
+bool starterRampEnabled = true;
+float pumpRampDuration = 1.5f;     // 1.5 giây
+float starterRampDuration = 1.0f;  // 1.0 giây
+float starterRampK = 1.2f;
+
+int pumpTargetUs = ESC_SAFE_US, pumpStartUs = ESC_SAFE_US;
+uint32_t pumpRampStartMs = 0;
+
+int startTargetUs = ESC_SAFE_US, startStartUs = ESC_SAFE_US;
+uint32_t startRampStartMs = 0;
+
+// 1. HÀM BƠM NHIÊN LIỆU: S-Curve (Smoothstep) 3x^2 - 2x^3
+float CalculatePumpSymmetricRamp(float current_time, float ramp_duration, float p_start, float p_target) {
+    if (current_time <= 0.0f) return p_start;
+    if (current_time >= ramp_duration) return p_target;
+    float x = current_time / ramp_duration;
+    float s_curve = (3.0f * x * x) - (2.0f * x * x * x);
+    return p_start + (p_target - p_start) * s_curve;
+}
+
+// 2. HÀM MÔ-TƠ ĐỀ: Gia tốc Mũ (Exponential Ramp Up)
+float CalculateStarterRampUp(float current_time, float ramp_duration, float s_min, float s_max, float k) {
+    if (current_time <= 0.0f) return s_min;
+    if (current_time >= ramp_duration) return s_max;
+    float exp_factor = 1.0f - expf(-k * current_time);
+    float max_factor = 1.0f - expf(-k * ramp_duration);
+    float normalized_factor = exp_factor / max_factor;
+    return s_min + (s_max - s_min) * normalized_factor;
+}
+
+void setPumpTargetUs(int targetUs) {
+  targetUs = constrain(targetUs, ESC_MIN_US, ESC_MAX_US);
+  if (targetUs != pumpTargetUs) {
+    pumpStartUs = pumpUs;
+    pumpTargetUs = targetUs;
+    pumpRampStartMs = millis();
+  }
+}
+
+void setStartTargetUs(int targetUs) {
+  targetUs = constrain(targetUs, ESC_MIN_US, ESC_MAX_US);
+  if (targetUs != startTargetUs) {
+    startStartUs = startUs;
+    startTargetUs = targetUs;
+    startRampStartMs = millis();
+  }
+}
+
+void updateRamps() {
+  uint32_t now = millis();
+
+  // BƠM RAMP (S-Curve)
+  if (pumpRampEnabled && pumpUs != pumpTargetUs) {
+    float elapsedS = (float)(now - pumpRampStartMs) / 1000.0f;
+    if (elapsedS >= pumpRampDuration) {
+      pumpUs = pumpTargetUs;
+    } else {
+      pumpUs = (int)roundf(CalculatePumpSymmetricRamp(elapsedS, pumpRampDuration, (float)pumpStartUs, (float)pumpTargetUs));
+    }
+  } else if (!pumpRampEnabled) {
+    pumpUs = pumpTargetUs;
+  }
+
+  // ĐỀ RAMP (Exponential)
+  if (starterRampEnabled && startUs != startTargetUs) {
+    float elapsedS = (float)(now - startRampStartMs) / 1000.0f;
+    if (elapsedS >= starterRampDuration) {
+      startUs = startTargetUs;
+    } else {
+      startUs = (int)roundf(CalculateStarterRampUp(elapsedS, starterRampDuration, (float)startStartUs, (float)startTargetUs, starterRampK));
+    }
+  } else if (!starterRampEnabled) {
+    startUs = startTargetUs;
+  }
+}
 
 bool allOutputsOff() {
   return startUs <= ESC_SAFE_US && pumpUs <= ESC_SAFE_US && !ignCmd && !valve1Cmd && !valve2Cmd;
@@ -753,11 +831,12 @@ void applyOutputs() {
 }
 
 void emergencyStop() {
-  pumpUs = ESC_SAFE_US;
+  setPumpTargetUs(ESC_SAFE_US);
+  pumpUs = ESC_SAFE_US; // Ngắt lập tức không qua Ramp
   ignCmd = false; valve1Cmd = false; valve2Cmd = false;
-  if (startUs <= ESC_SAFE_US) {
+  if (startTargetUs <= ESC_SAFE_US) {
     if (egt.ok && egt.c > 80.0f) {
-      startUs = 1300;
+      setStartTargetUs(1300);
       Serial.print("EV:A03|EGT="); Serial.println(egt.c, 1);
     } else {
       Serial.println("EV:A04");
@@ -769,7 +848,8 @@ void emergencyStop() {
 }
 
 void allOff() {
-  pumpUs = ESC_SAFE_US; startUs = ESC_SAFE_US;
+  setPumpTargetUs(ESC_SAFE_US); setStartTargetUs(ESC_SAFE_US);
+  pumpUs = ESC_SAFE_US; startUs = ESC_SAFE_US; // Ngắt lập tức không qua Ramp
   ignCmd = false; valve1Cmd = false; valve2Cmd = false;
   applyOutputs();
 }
@@ -821,7 +901,9 @@ void sendWebStatus() {
   Serial.print(" | SD="); Serial.print(sdOk ? "OK" : "-");
   if (rpmCalMode) Serial.print(" | RPMCAL");
   Serial.print(" | ALEARN="); Serial.print(starterLearnedBins); Serial.print("/"); Serial.print(PWM_BIN_COUNT);
-  Serial.print(" | VER=5.3");
+  Serial.print(" | PRAMP="); Serial.print(pumpRampEnabled ? 1 : 0);
+  Serial.print(" | SRAMP="); Serial.print(starterRampEnabled ? 1 : 0);
+  Serial.print(" | VER=5.4");
   Serial.println();
 }
 
@@ -940,18 +1022,24 @@ void handleCommand(String cmd) {
   if (cmd == "set rpmcal on") { rpmCalMode = true; resetRpmStats(); Serial.println("RPM CAL ON."); return; }
   if (cmd == "set rpmcal off") { rpmCalMode = false; resetRpmStats(); Serial.println("RPM CAL OFF."); return; }
 
+  if (cmd == "set pumpramp on") { pumpRampEnabled = true; Serial.println("PUMP RAMP ON"); sendWebStatus(); return; }
+  if (cmd == "set pumpramp off") { pumpRampEnabled = false; pumpUs = pumpTargetUs; Serial.println("PUMP RAMP OFF"); sendWebStatus(); return; }
+  if (cmd == "set starterramp on") { starterRampEnabled = true; Serial.println("STARTER RAMP ON"); sendWebStatus(); return; }
+  if (cmd == "set starterramp off") { starterRampEnabled = false; startUs = startTargetUs; Serial.println("STARTER RAMP OFF"); sendWebStatus(); return; }
+
   if (cmd.startsWith("starter ")) {
     String arg = cmd.substring(String("starter ").length()); arg.trim();
-    if (arg == "off") { startUs = ESC_SAFE_US; applyOutputs(); Serial.println("STARTER OFF."); return; }
+    if (arg == "off") { setStartTargetUs(ESC_SAFE_US); applyOutputs(); Serial.println("STARTER OFF"); return; }
     int us = arg.toInt();
     if (us < ESC_MIN_US || us > ESC_MAX_US) { Serial.println("ERROR: starter 1000..2000"); return; }
-    startUs = us; applyOutputs();
-    Serial.print("STARTER HOLD at "); Serial.print(us); Serial.println("us"); return;
+    setStartTargetUs(us); applyOutputs();
+    Serial.print("STARTER="); Serial.println(us); return;
   }
   if (cmd.startsWith("pump ")) {
     String arg = cmd.substring(String("pump ").length()); arg.trim();
     if (arg == "off") {
-      pumpUs = ESC_SAFE_US;
+      setPumpTargetUs(ESC_SAFE_US);
+      pumpUs = ESC_SAFE_US; // Ngắt Bơm ngay lập tức
       bool wasValveOpen = valve1Cmd || valve2Cmd;
       valve1Cmd = false; valve2Cmd = false;
       applyOutputs();
@@ -970,8 +1058,9 @@ void handleCommand(String cmd) {
       return;
     }
 
-    pumpUs = us;
-    if (pumpUs <= ESC_SAFE_US) {
+    setPumpTargetUs(us);
+    if (pumpTargetUs <= ESC_SAFE_US) {
+      pumpUs = ESC_SAFE_US;
       bool wasValveOpen = valve1Cmd || valve2Cmd;
       valve1Cmd = false; valve2Cmd = false;
       if (wasValveOpen) Serial.println("EV:A01");
@@ -984,7 +1073,8 @@ void handleCommand(String cmd) {
   if (cmd == "valve1 on")  { valve1Cmd = true;  applyOutputs(); Serial.println("VALVE1 ON");  return; }
   if (cmd == "valve1 off") { 
     valve1Cmd = false; 
-    if (!valve1Cmd && !valve2Cmd && pumpUs > ESC_SAFE_US) {
+    if (!valve1Cmd && !valve2Cmd && pumpTargetUs > ESC_SAFE_US) {
+      setPumpTargetUs(ESC_SAFE_US);
       pumpUs = ESC_SAFE_US;
       Serial.println("EV:A02");
     } else {
@@ -995,7 +1085,8 @@ void handleCommand(String cmd) {
   if (cmd == "valve2 on")  { valve2Cmd = true;  applyOutputs(); Serial.println("VALVE2 ON");  return; }
   if (cmd == "valve2 off") { 
     valve2Cmd = false; 
-    if (!valve1Cmd && !valve2Cmd && pumpUs > ESC_SAFE_US) {
+    if (!valve1Cmd && !valve2Cmd && pumpTargetUs > ESC_SAFE_US) {
+      setPumpTargetUs(ESC_SAFE_US);
       pumpUs = ESC_SAFE_US;
       Serial.println("EV:A02");
     } else {
@@ -1082,7 +1173,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 5.3");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 5.4");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;
@@ -1128,6 +1219,7 @@ void loop() {
   updateButton();
 
   if (escCalActive && escCalPhaseUntilMs > 0 && millis() >= escCalPhaseUntilMs) {
+    setStartTargetUs(ESC_MIN_US); setPumpTargetUs(ESC_MIN_US);
     startUs = ESC_MIN_US; pumpUs = ESC_MIN_US; applyOutputs();
     escCalPhaseUntilMs = 0; escCalActive = false;
     Serial.println("ESC CAL: dropped to MIN 1000us (done).");
@@ -1135,6 +1227,7 @@ void loop() {
 
   updateRpm();
   updateEgt();
+  updateRamps(); // Tính toán xung PWM mượt theo S-Curve & Exponential
   applyOutputs(); 
 
   // --- Heartbeat LED ---

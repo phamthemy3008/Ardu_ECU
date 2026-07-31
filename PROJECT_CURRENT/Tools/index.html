@@ -205,8 +205,13 @@
       font-size: 13px;
     }
 
-    #webStatusConsole {
-      color: #00adb5;
+    @keyframes blinkWarning { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
+    #disconnectOverlay {
+      display: none;
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(255, 0, 0, 0.85);
+      z-index: 9999; color: white;
+      align-items: center; justify-content: center; flex-direction: column;
     }
 
     /* TOAST NOTIFICATION BANNER SYSTEM */
@@ -268,6 +273,44 @@
       70% { box-shadow: 0 0 0 12px rgba(214, 48, 49, 0); }
       100% { box-shadow: 0 0 0 0 rgba(214, 48, 49, 0); }
     }
+
+    /* TOGGLE SWITCH STYLES */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 22px;
+    }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #444;
+      transition: .3s;
+      border-radius: 22px;
+    }
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+    input:checked + .toggle-slider {
+      background-color: #00adb5;
+    }
+    input:checked + .toggle-slider:before {
+      transform: translateX(22px);
+    }
   </style>
 </head>
 
@@ -281,7 +324,7 @@
   </div>
 
   <div class="header">
-    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v5.3 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
+    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v5.4 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
     <div style="display:flex; gap:10px;">
       <button id="connectBtn" class="btn">🔌 Kết Nối USB COM</button>
       <button id="disconnectBtn" class="btn btn-danger" style="display:none;">❌ Ngắt Kết Nối</button>
@@ -348,6 +391,14 @@
           <button class="btn" style="flex:1;" onclick="startStarterCustom()">Bật Đề</button>
           <button class="btn btn-danger" style="flex:1;" onclick="stopStarter()">Tắt Đề</button>
         </div>
+
+        <div style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; background: #1a1a1a; padding: 8px 12px; border-radius: 6px; border: 1px solid #333;">
+          <span style="font-size: 12px; color: var(--subtext);">⚡ Gia Tốc Mũ (Exponential Ramp 1.0s):</span>
+          <label class="switch">
+            <input type="checkbox" id="starterRampToggle" checked onchange="toggleStarterRamp(this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -372,6 +423,14 @@
           <input type="number" id="pumpCustomVal" class="num-input" value="1200" min="1000" max="2000" style="flex:1;">
           <button class="btn" style="flex:1;" onclick="startPumpCustom()">Bật Bơm</button>
           <button class="btn btn-danger" style="flex:1;" onclick="stopPump()">Tắt Bơm</button>
+        </div>
+
+        <div style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; background: #1a1a1a; padding: 8px 12px; border-radius: 6px; border: 1px solid #333;">
+          <span style="font-size: 12px; color: var(--subtext);">🌊 Đường Cong S-Curve (Smooth Ramp 1.5s):</span>
+          <label class="switch">
+            <input type="checkbox" id="pumpRampToggle" checked onchange="togglePumpRamp(this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
         </div>
       </div>
     </div>
@@ -620,6 +679,16 @@
       document.getElementById('starterSlider').value = 1000;
       document.getElementById('starterUsVal').innerText = "1000 µs";
       sendCmd('starter off');
+    }
+
+    function toggleStarterRamp(enabled) {
+      sendCmd(enabled ? 'set starterramp on' : 'set starterramp off');
+      showToast(enabled ? "ĐÃ BẬT gia tốc mũ mượt cho Mô-tơ Đề (Exponential Ramp 1.0s)" : "ĐÃ TẮT gia tốc mượt cho Đề (Chuyển về xung trực tiếp)", enabled ? 'info' : 'warning', 4000);
+    }
+
+    function togglePumpRamp(enabled) {
+      sendCmd(enabled ? 'set pumpramp on' : 'set pumpramp off');
+      showToast(enabled ? "ĐÃ BẬT gia tốc S-Curve mượt cho Bơm (Smooth Ramp 1.5s)" : "ĐÃ TẮT gia tốc mượt cho Bơm (Chuyển về xung trực tiếp)", enabled ? 'info' : 'warning', 4000);
     }
 
     function showToast(message, type = 'info', durationMs = 5000) {
@@ -897,6 +966,14 @@
           }
           if (part.startsWith("VER=")) {
             document.getElementById('ecuVersion').innerText = part.replace("VER=", "");
+          }
+          if (part.startsWith("PRAMP=")) {
+            let enabled = part.endsWith("1");
+            document.getElementById('pumpRampToggle').checked = enabled;
+          }
+          if (part.startsWith("SRAMP=")) {
+            let enabled = part.endsWith("1");
+            document.getElementById('starterRampToggle').checked = enabled;
           }
           if (part.startsWith("ALEARN=")) {
             document.getElementById('alearnVal').innerText = part.replace("ALEARN=", "") + " bins";

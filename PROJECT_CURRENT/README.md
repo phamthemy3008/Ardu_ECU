@@ -1,6 +1,6 @@
-# PROJECT_CURRENT — ECU Manual V1 (Version 5.3)
+# PROJECT_CURRENT — ECU Manual V1 (Version 5.4)
 
-**Trạng thái**: Đang phát triển tích cực (Phiên bản v5.3)  
+**Trạng thái**: Đang phát triển tích cực (Phiên bản v5.4)  
 **Cập nhật**: 2026-07-31  
 
 ---
@@ -11,10 +11,10 @@
 PROJECT_CURRENT/
 │
 ├── Firmware/ECU_ManualV1/
-│   └── ECU_ManualV1.ino           ← Firmware ESP32 (Arduino IDE, v5.3)
+│   └── ECU_ManualV1.ino           ← Firmware ESP32 (Arduino IDE, v5.4)
 │
 ├── Tools/
-│   └── index.html                 ← Web Dashboard (Chrome/Edge, Web Serial API, v5.3)
+│   └── index.html                 ← Web Dashboard (Chrome/Edge, Web Serial API, v5.4)
 │
 ├── Hardware/
 │   ├── ECU_JET_20260723.net       ← Netlist PCB (PADS)
@@ -45,8 +45,10 @@ PROJECT_CURRENT/
 
 ---
 
-## Tính Năng Chính (v5.3)
+## Tính Năng Chính (v5.4)
 
+- **Thuật Toán Gia Tốc Mượt Bơm (Pump S-Curve Smoothstep Ramp 1.5s)**: Gia tốc ga nhiên liệu mượt mà theo đa thức bậc 3 ($3x^2 - 2x^3$), giúp động cơ rú ga mượt hệt như máy bay thật, chống sặc dầu & dập lửa. Có công tắc Bật/Tắt tùy chọn độc lập trên Web UI (`set pumpramp on|off`).
+- **Thuật Toán Gia Tốc Đề (Starter Exponential Ramp Up 1.0s)**: Gia tốc lực kéo mô-tơ Đề theo đường cong mũ lũy thừa, thắng lực ma sát nghỉ ban đầu mà không làm xóc nhông Bendix hay kẹt motor. Có công tắc Bật/Tắt tùy chọn độc lập trên Web UI (`set starterramp on|off`).
 - **Web Serial API & CRC-8**: Điều khiển mượt mà, chống nhiễu lệnh UART bằng mã CRC-8.
 - **Bộ Lọc RPM 7 Tầng**: Min Pulse → Dynamic Mask 75% → Median-5 → Dynamic Outlier Guard → Rate Limiter → Adaptive PWM-Aware Learning (Monotonicity Floor + Hysteresis) → Cascaded Dual-EMA Bậc 2.
 - **Dừng Khẩn Cấp Thổi Khí Nóng (`estop`)**: Ngắt Bơm/Lửa/Van nhưng tự động bật/giữ Mô-tơ Đề 1300 µs để làm mát buồng đốt khi EGT > 80°C.
