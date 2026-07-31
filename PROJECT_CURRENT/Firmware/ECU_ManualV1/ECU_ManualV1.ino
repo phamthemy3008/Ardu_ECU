@@ -27,6 +27,10 @@
 #define PIN_SD_SCK     14
 #define PIN_SD_MOSI    23
 #define PIN_SD_MISO    27
+#define PIN_LED         2  // Status LED (Onboard NodeMCU-32S)
+#define PIN_BUTTON     22  // User Button
+#define PIN_RC_1       34  // RC Input 1
+#define PIN_RC_2       35  // RC Input 2
 
 enum RpmNoiseLevel : uint8_t { RPM_CLEAN, RPM_WARN, RPM_NOISY, RPM_REST_NOISE, RPM_NO_SIGNAL };
 static const bool IGN_ACTIVE_HIGH   = true;
@@ -793,7 +797,7 @@ void sendWebStatus() {
   Serial.print(" | SD="); Serial.print(sdOk ? "OK" : "-");
   if (rpmCalMode) Serial.print(" | RPMCAL");
   Serial.print(" | ALEARN="); Serial.print(starterLearnedBins); Serial.print("/"); Serial.print(PWM_BIN_COUNT);
-  Serial.print(" | VER=4.3");
+  Serial.print(" | VER=4.4");
   Serial.println();
 }
 
@@ -984,11 +988,12 @@ void setup() {
   Serial.begin(115200);
   delay(400);
 
-  pinMode(PIN_IGN, OUTPUT); pinMode(PIN_VALVE_1, OUTPUT); pinMode(PIN_VALVE_2, OUTPUT);
+  pinMode(PIN_IGN, OUTPUT);     digitalWrite(PIN_IGN, IGN_ACTIVE_HIGH ? LOW : HIGH);
+  pinMode(PIN_VALVE_1, OUTPUT); digitalWrite(PIN_VALVE_1, VALVE_ACTIVE_HIGH ? LOW : HIGH);
+  pinMode(PIN_VALVE_2, OUTPUT); digitalWrite(PIN_VALVE_2, VALVE_ACTIVE_HIGH ? LOW : HIGH);
+  
+  pinMode(PIN_LED, OUTPUT);     digitalWrite(PIN_LED, LOW); // Heartbeat LED
   pinMode(PIN_RPM, INPUT);
-  digitalWrite(PIN_IGN, IGN_ACTIVE_HIGH ? LOW : HIGH);
-  digitalWrite(PIN_VALVE_1, VALVE_ACTIVE_HIGH ? LOW : HIGH);
-  digitalWrite(PIN_VALVE_2, VALVE_ACTIVE_HIGH ? LOW : HIGH);
 
   gpio_install_isr_service(0); // Cài đặt ISR service trước để tránh lỗi khi gọi attachInterrupt nhiều lần
 
@@ -1008,10 +1013,13 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 4.3");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 4.4");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;
+unsigned long lastHeartbeatMs = 0;
+bool ledState = false;
+
 void loop() {
   processSerialRx();
   if (escCalActive && escCalPhaseUntilMs > 0 && millis() >= escCalPhaseUntilMs) {
@@ -1024,6 +1032,13 @@ void loop() {
   updateRpm();
   updateEgt();
   applyOutputs(); 
+
+  // --- Heartbeat LED ---
+  if (millis() - lastHeartbeatMs >= 500) {
+    lastHeartbeatMs = millis();
+    ledState = !ledState;
+    digitalWrite(PIN_LED, ledState ? HIGH : LOW);
+  }
 
   if (millis() - lastStatusPrintMs >= STATUS_PRINT_MS) {
     lastStatusPrintMs = millis();
