@@ -198,9 +198,10 @@ float getExpectedStarterRpm(int starterPwmUs) {
     float t = (float)(idx - leftIdx) / (float)(rightIdx - leftIdx);
     return starterRpmMap[leftIdx].rpmEstimate + t * (starterRpmMap[rightIdx].rpmEstimate - starterRpmMap[leftIdx].rpmEstimate);
   } else if (leftIdx >= 0) {
-    return starterRpmMap[leftIdx].rpmEstimate;
+    // KHÔNG extrapolate ngang (sẽ ghim RPM thấp khi PWM tăng). Trả về -1 để bỏ qua Phase 3.
+    return -1.0f;
   } else if (rightIdx >= 0) {
-    return starterRpmMap[rightIdx].rpmEstimate;
+    return -1.0f;
   }
   return -1.0f; // Chưa có dữ liệu nào
 }
@@ -346,10 +347,17 @@ RpmNoiseLevel classifyRpmNoise(bool recent, uint32_t raw, uint32_t accepted, uin
                                float rejectPct, float jitterPct, float rpmDiffPct, uint32_t intervals) {
   if (!recent && raw == 0) return RPM_NO_SIGNAL;
   if (raw > 1 && accepted == 0) return RPM_NOISY;
-  if (rejected >= 3 || rejectPct > 20.0f ||
-      (intervals >= 5 && jitterPct > 30.0f) || (rpmDiffPct > 30.0f)) return RPM_NOISY;
-  if (rejected > 0 || rejectPct > 5.0f ||
-      (intervals >= 3 && jitterPct > 15.0f) || (rpmDiffPct > 15.0f)) return RPM_WARN;
+  
+  // Nếu tín hiệu lọt qua mask RẤT ỔN ĐỊNH (jitter thấp), chứng tỏ Mask đã lọc thành công nhiễu đồng bộ (vd: từ chổi than).
+  // Ta không nên phạt quá nặng (NOISY) chỉ vì rejectPct cao.
+  bool maskSuccessful = (intervals >= 3 && jitterPct < 15.0f && rpmDiffPct < 15.0f);
+
+  if (!maskSuccessful && (rejected >= 3 || rejectPct > 20.0f || (intervals >= 5 && jitterPct > 30.0f) || rpmDiffPct > 30.0f)) {
+    return RPM_NOISY;
+  }
+  if (rejected > 0 || rejectPct > 5.0f || (intervals >= 3 && jitterPct > 15.0f) || rpmDiffPct > 15.0f) {
+    return RPM_WARN;
+  }
   return RPM_CLEAN;
 }
 
@@ -439,7 +447,7 @@ void IRAM_ATTR rpmISR() {
     uint32_t dtAcceptedUs = nowUs - isrLastAcceptedPulseUs;
     uint32_t maskUs = filterUs;
     if (isrLastPeriodUs > 0 && isrLastPeriodUs <= 100000UL) {
-      uint32_t dynMaskUs = (isrLastPeriodUs * 3UL) / 4UL; // 75% of previous period — siết chặt hơn 66.7% cũ
+      uint32_t dynMaskUs = (isrLastPeriodUs * 2UL) / 3UL; // 66.7% of previous period (an toàn hơn 75%)
       if (dynMaskUs > 50000UL) dynMaskUs = 50000UL;
       if (dynMaskUs > maskUs) maskUs = dynMaskUs;
     }
@@ -460,7 +468,7 @@ void IRAM_ATTR rpmISR() {
     #undef SORT2
     uint32_t medianUs = s[2]; // Phần tử giữa sau khi sắp xếp
 
-    isrLastPeriodUs = dtAcceptedUs; // Giữ nguyên mask dựa trên chu kỳ gốc
+    isrLastPeriodUs = medianUs; // Dùng median thay vì dtAcceptedUs để không bị lock-out mask khi rớt 1 xung
     isrAcceptedIntervals++;
     isrSumDtUs += medianUs; // Cộng median thay vì raw để tính trung bình tuyệt đối tĩnh
     isrSumDtSqUs += (uint64_t)medianUs * (uint64_t)medianUs;
@@ -592,8 +600,11 @@ void updateRpm() {
     if (startUs > ESC_SAFE_US || inStarterTransition) {
       int currentBinIdx = (startUs > ESC_SAFE_US) ? pwmToBinIndex(startUs) : pwmToBinIndex(1100);
 
-      // PHASE 1 - HỌC: Khi tín hiệu sạch và đang đề, ghi nhớ cặp (PWM, RPM)
-      if (startUs > ESC_SAFE_US && rpmData.noise <= RPM_WARN && rawRpmCandidate > 100.0f) {
+      // PHASE 1 - HỌC: Khi tín hiệu ổn định và đang đề, ghi nhớ cặp (PWM, RPM)
+      // Cho phép học ngay cả khi NOISY nếu Jitter đủ thấp (Mask lọc tốt)
+      bool stableForLearning = (rpmData.noise <= RPM_WARN) || (rpmData.noise == RPM_NOISY && rpmData.jitterPct < 20.0f && rpmData.validIntervals >= 2);
+      
+      if (startUs > ESC_SAFE_US && stableForLearning && rawRpmCandidate > 100.0f) {
         learnStarterRpm(startUs, rawRpmCandidate);
       }
 
@@ -624,11 +635,11 @@ void updateRpm() {
     // Chọn hệ số lọc mềm mại dựa trên trạng thái Đề, Chuyển tiếp & Nhiễu
     float alpha1, alpha2, alphaTrigger;
     if (startUs > ESC_SAFE_US || inStarterTransition) {
-      alpha1 = 0.12f; alpha2 = 0.35f; alphaTrigger = 0.08f; // Đề / chuyển tiếp: Lọc cực mạnh
+      alpha1 = 0.20f; alpha2 = 0.40f; alphaTrigger = 0.15f; // Đề / chuyển tiếp: Lọc cực mạnh -> nới lỏng để phản hồi tốt hơn
     } else if (rpmData.noise >= RPM_WARN || rpmData.rpmFiltered < 25000.0f) {
-      alpha1 = 0.18f; alpha2 = 0.40f; alphaTrigger = 0.15f; // Tự quay dải thấp / nhiễu: Lọc vừa
+      alpha1 = 0.30f; alpha2 = 0.50f; alphaTrigger = 0.25f; // Tự quay dải thấp / nhiễu: Lọc vừa
     } else {
-      alpha1 = 0.30f; alpha2 = 0.50f; alphaTrigger = 0.25f; // Tự quay dải cao & sạch: Lọc nhanh
+      alpha1 = 0.45f; alpha2 = 0.65f; alphaTrigger = 0.40f; // Tự quay dải cao & sạch: Lọc nhanh
     }
 
     if (rpmData.rpmStage1 == 0.0f && rawRpmCandidate > 0.0f) {
@@ -903,7 +914,7 @@ void sendWebStatus() {
   Serial.print(" | ALEARN="); Serial.print(starterLearnedBins); Serial.print("/"); Serial.print(PWM_BIN_COUNT);
   Serial.print(" | PRAMP="); Serial.print(pumpRampEnabled ? 1 : 0);
   Serial.print(" | SRAMP="); Serial.print(starterRampEnabled ? 1 : 0);
-  Serial.print(" | VER=5.4");
+  Serial.print(" | VER=5.7");
   Serial.println();
 }
 
@@ -1173,7 +1184,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 5.4");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 5.7");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;

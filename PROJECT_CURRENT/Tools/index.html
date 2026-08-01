@@ -324,7 +324,7 @@
   </div>
 
   <div class="header">
-    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v5.4 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
+    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v5.7 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
     <div style="display:flex; gap:10px;">
       <button id="connectBtn" class="btn">🔌 Kết Nối USB COM</button>
       <button id="disconnectBtn" class="btn btn-danger" style="display:none;">❌ Ngắt Kết Nối</button>
@@ -349,7 +349,7 @@
       <div style="margin-top: 4px; font-size: 13px; color: var(--subtext);">
         Raw Unfiltered RPM (Thô 100%): <span id="rrpmVal" style="font-weight:bold; color:#ff7675;">0</span> RPM
       </div>
-      <div style="margin-top: 4px;">Trạng thái: <span id="rpmNoise" style="font-weight:bold; color:var(--accent);">--</span></div>
+      <div style="margin-top: 4px;">Trạng thái: <span id="rpmNoise" style="font-weight:bold; color:var(--accent);">--</span> | Tín hiệu: <span id="rpmSig" style="font-weight:bold; color:#00ff87;">--</span></div>
       <div style="margin-top: 4px; font-size: 12px; color: var(--subtext);">🧠 Adaptive Learn: <span id="alearnVal" style="font-weight:bold; color:#fdcb6e;">--</span></div>
     </div>
 
@@ -437,7 +437,7 @@
 
     <!-- CÔNG TẮC, CONFIG SD & STOP KHẨN CẤP -->
     <div class="card">
-      <h3>Cấu Hình SD & Khẩn Cấp</h3>
+      <h3>Cấu Hình SD & Khẩn Cấp <span style="font-size: 13px; font-weight: normal; color: var(--subtext); margin-left: 10px;">(Thẻ SD: <span id="sdStatus" style="font-weight:bold; color:#00ff87;">--</span>)</span></h3>
       <div class="btn-grid" style="margin-bottom:10px;">
         <button class="btn" onclick="toggleCmd('ign')" style="grid-column: span 2;">Toggle IGN (Đánh Lửa)</button>
         <button class="btn" onclick="toggleCmd('valve1')">Starter Valve (V1)</button>
@@ -932,6 +932,24 @@
             document.getElementById('rrpmVal').innerText = valStr;
           }
           if (part.startsWith("RNOISE=")) document.getElementById('rpmNoise').innerText = part.replace("RNOISE=", "");
+          if (part.startsWith("SIG=")) {
+            let sigVal = part.replace("SIG=", "");
+            const sigEl = document.getElementById('rpmSig');
+            if (sigEl) {
+              sigEl.innerText = sigVal;
+              if (sigVal === "OK") sigEl.style.color = "#00ff87";
+              else if (sigVal === "REST") sigEl.style.color = "#fdcb6e";
+              else sigEl.style.color = "#ff7675";
+            }
+          }
+          if (part.startsWith("SD=")) {
+            let sdVal = part.replace("SD=", "");
+            const sdEl = document.getElementById('sdStatus');
+            if (sdEl) {
+              sdEl.innerText = sdVal;
+              sdEl.style.color = (sdVal === "OK") ? "#00ff87" : "#ff7675";
+            }
+          }
           if (part.startsWith("IGN=")) {
             if (Date.now() - lastToggleTime > 1000) {
               ignState = part.endsWith("1");
