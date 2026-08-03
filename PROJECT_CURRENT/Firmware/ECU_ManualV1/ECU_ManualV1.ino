@@ -701,13 +701,30 @@ void updateEgt() {
     float dtS = (float)(nowMs - egt.lastGoodMs) / 1000.0f;
     if (dtS > 0.05f) {
       egt.gradientCps = ((float)tc - egt.c) / dtS;
-      egt.cProjected3s = (float)tc + (egt.gradientCps * 3.0f);
+
+      // Kẹp gradient vào dải vật lý hợp lý TRƯỚC khi chiếu 3s. Một mẫu nhiễu
+      // thermocouple/MAX31855 đơn lẻ (log thực đã thấy dEGT ±8000..10000) nếu
+      // không kẹp sẽ đẩy cProjected3s lên hàng chục nghìn và gây estop giả giữa
+      // lúc đang chạy. gradientCps thô vẫn giữ nguyên để hiển thị.
+      float gClamped = egt.gradientCps;
+      if (gClamped >  600.0f) gClamped =  600.0f;
+      if (gClamped < -600.0f) gClamped = -600.0f;
+      egt.cProjected3s = (float)tc + (gClamped * 3.0f);
 
       // --- BẢO VỆ CHỐNG BÙNG NHIỆT (PEGT 3s > 740°C) ---
+      // Yêu cầu điều kiện quá nhiệt giữ liên tiếp >=2 mẫu (~240ms) để 1 spike
+      // nhiễu đơn lẻ không cắt nhiên liệu oan. Overtemp thật vẫn trip nhanh.
+      static uint8_t overTempCount = 0;
       if (pumpUs > ESC_SAFE_US && egt.cProjected3s > 740.0f) {
-        emergencyStop();
-        Serial.print("ERR:E02|PEGT="); Serial.println(egt.cProjected3s, 1);
-        sendWebStatus();
+        overTempCount++;
+        if (overTempCount >= 2) {
+          overTempCount = 0;
+          emergencyStop();
+          Serial.print("ERR:E02|PEGT="); Serial.println(egt.cProjected3s, 1);
+          sendWebStatus();
+        }
+      } else {
+        overTempCount = 0;
       }
     }
   } else {
@@ -867,10 +884,9 @@ void allOff() {
 
 // ---------------- Purge & Prime Timers ----------------
 // Removed per user request
-
-bool escCalActive = false;
-uint32_t escCalPhaseUntilMs = 0;
-static const uint32_t ESC_CAL_MAX_HOLD_MS = 5000;
+// ESC throttle-range calibration (esccal) removed per user request - ESC is now
+// calibrated externally by feeding the pulse directly; the command also fought the
+// ramp system (startUs/pumpUs set to MAX were snapped back by updateRamps()).
 
 // ---------------- Serial console ----------------
 long numberAfter(const String& cmd, const String& prefix) { return cmd.substring(prefix.length()).toInt(); }
@@ -887,7 +903,6 @@ void printHelp() {
   Serial.println("pump <1000..2000>    | pump off     -> hold pump ESC PWM");
   Serial.println("ign on | ign off            -> igniter/glow");
   Serial.println("valve1 on|off | valve2 on|off");
-  Serial.println("esccal start | esccal cancel -> ESC throttle-range calib");
   Serial.println("estop                       -> emergency stop (fuel/ign off, starter purges)");
   Serial.println("alloff | stop               -> all outputs to safe (total shutdown)");
   Serial.println("savecfg | loadcfg           -> save/reload sensor setup to SD");
@@ -914,7 +929,7 @@ void sendWebStatus() {
   Serial.print(" | ALEARN="); Serial.print(starterLearnedBins); Serial.print("/"); Serial.print(PWM_BIN_COUNT);
   Serial.print(" | PRAMP="); Serial.print(pumpRampEnabled ? 1 : 0);
   Serial.print(" | SRAMP="); Serial.print(starterRampEnabled ? 1 : 0);
-  Serial.print(" | VER=5.7");
+  Serial.print(" | VER=5.8");
   Serial.println();
 }
 
@@ -1106,18 +1121,6 @@ void handleCommand(String cmd) {
     applyOutputs(); sendWebStatus(); return; 
   }
 
-  if (cmd == "esccal start") {
-    escCalActive = true;
-    startUs = ESC_MAX_US; pumpUs = ESC_MAX_US; applyOutputs();
-    escCalPhaseUntilMs = millis() + ESC_CAL_MAX_HOLD_MS;
-    Serial.println("ESC CAL: MAX 2000us. Auto-drop to MIN after 5s."); return;
-  }
-  if (cmd == "esccal cancel" || cmd == "esccal off") {
-    escCalActive = false; escCalPhaseUntilMs = 0;
-    startUs = ESC_SAFE_US; pumpUs = ESC_SAFE_US; applyOutputs();
-    Serial.println("ESC CAL cancelled."); return;
-  }
-
   if (cmd == "estop" || cmd == "coolstop") {
     emergencyStop(); Serial.println("EV:A03"); return;
   }
@@ -1184,7 +1187,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 5.7");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 5.8");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;
@@ -1228,13 +1231,6 @@ void updateButton() {
 void loop() {
   processSerialRx();
   updateButton();
-
-  if (escCalActive && escCalPhaseUntilMs > 0 && millis() >= escCalPhaseUntilMs) {
-    setStartTargetUs(ESC_MIN_US); setPumpTargetUs(ESC_MIN_US);
-    startUs = ESC_MIN_US; pumpUs = ESC_MIN_US; applyOutputs();
-    escCalPhaseUntilMs = 0; escCalActive = false;
-    Serial.println("ESC CAL: dropped to MIN 1000us (done).");
-  }
 
   updateRpm();
   updateEgt();
