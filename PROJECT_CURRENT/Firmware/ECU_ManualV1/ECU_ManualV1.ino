@@ -734,10 +734,47 @@ void updateEgt() {
   egt.prevC = egt.c; egt.c = (float)tc; egt.ok = true; egt.fault = 0; egt.lastGoodMs = nowMs;
 }
 
-// ---------------- SD config (Chuyển sang HSPI để không đụng VSPI của MAX31855) ----------------
+// ---------------- SD config & FreeRTOS Telemetry ----------------
 SPIClass sdSPI(HSPI);
 bool sdOk = false, sdMounted = false;
 static const char* CONFIG_PATH = "/ECUCFG.TXT";
+
+struct LogData {
+  uint32_t ms;
+  float egt;
+  float rpm;
+  int pump;
+  int start;
+  uint8_t sig;
+  bool ign;
+  bool v1;
+  bool v2;
+};
+
+QueueHandle_t logQueue = NULL;
+TaskHandle_t sdLogTaskHandle = NULL;
+bool isLoggingActive = false;
+
+void sdLogTask(void *pvParameters) {
+  LogData data;
+  while (true) {
+    if (xQueueReceive(logQueue, &data, portMAX_DELAY) == pdPASS) {
+      if (sdOk && sdMounted) {
+        File f = SD.open("/FLIGHT.CSV", FILE_APPEND);
+        if (f) {
+          do {
+            char buf[128];
+            snprintf(buf, sizeof(buf), "%lu,%.1f,%.0f,%d,%d,%d,%d,%d,%d\n",
+                     (unsigned long)data.ms, data.egt, data.rpm, data.pump, data.start,
+                     (int)data.sig, data.ign ? 1 : 0, data.v1 ? 1 : 0, data.v2 ? 1 : 0);
+            f.print(buf);
+          } while (xQueueReceive(logQueue, &data, 0) == pdPASS);
+          f.close();
+        }
+      }
+    }
+  }
+}
 
 bool mountSd(bool force = false) {
   if (sdMounted && sdOk && !force) return true;
@@ -906,6 +943,7 @@ void printHelp() {
   Serial.println("estop                       -> emergency stop (fuel/ign off, starter purges)");
   Serial.println("alloff | stop               -> all outputs to safe (total shutdown)");
   Serial.println("savecfg | loadcfg           -> save/reload sensor setup to SD");
+  Serial.println("log start | log stop | log reset -> FreeRTOS SD Blackbox telemetry");
 }
 
 void sendWebStatus() {
@@ -929,7 +967,8 @@ void sendWebStatus() {
   Serial.print(" | ALEARN="); Serial.print(starterLearnedBins); Serial.print("/"); Serial.print(PWM_BIN_COUNT);
   Serial.print(" | PRAMP="); Serial.print(pumpRampEnabled ? 1 : 0);
   Serial.print(" | SRAMP="); Serial.print(starterRampEnabled ? 1 : 0);
-  Serial.print(" | VER=5.8");
+  Serial.print(" | LOG="); Serial.print(isLoggingActive ? 1 : 0);
+  Serial.print(" | VER=5.9");
   Serial.println();
 }
 
@@ -1127,6 +1166,41 @@ void handleCommand(String cmd) {
   if (cmd == "alloff" || cmd == "stop" || cmd == "off" || cmd == "shutdown") { 
     allOff(); Serial.println("EV:A05"); return; 
   }
+  if (cmd == "log start" || cmd == "log on") {
+    if (!sdOk && !mountSd(true)) { Serial.println("LOG FAIL: SD card not mounted."); sendWebStatus(); return; }
+    if (!SD.exists("/FLIGHT.CSV")) {
+      File f = SD.open("/FLIGHT.CSV", FILE_WRITE);
+      if (f) {
+        f.println("TimeMs,EGT_C,RPM,PumpUs,StartUs,SigState,Ign,Valve1,Valve2");
+        f.close();
+      }
+    }
+    isLoggingActive = true;
+    Serial.println("LOG STARTED -> /FLIGHT.CSV (10Hz FreeRTOS Core 0)");
+    sendWebStatus();
+    return;
+  }
+  if (cmd == "log stop" || cmd == "log off") {
+    isLoggingActive = false;
+    Serial.println("LOG STOPPED.");
+    sendWebStatus();
+    return;
+  }
+  if (cmd == "log reset") {
+    isLoggingActive = false;
+    if (mountSd(true)) {
+      if (SD.exists("/FLIGHT.CSV")) SD.remove("/FLIGHT.CSV");
+      File f = SD.open("/FLIGHT.CSV", FILE_WRITE);
+      if (f) {
+        f.println("TimeMs,EGT_C,RPM,PumpUs,StartUs,SigState,Ign,Valve1,Valve2");
+        f.close();
+      }
+      Serial.println("LOG RESET: /FLIGHT.CSV recreated.");
+    }
+    sendWebStatus();
+    return;
+  }
+
   if (cmd == "savecfg") { 
     if (saveConfigToSd()) {
       sendWebStatus();
@@ -1187,7 +1261,20 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 5.8");
+  logQueue = xQueueCreate(50, sizeof(LogData));
+  if (logQueue != NULL) {
+    xTaskCreatePinnedToCore(
+      sdLogTask,
+      "SD_LogTask",
+      4096,
+      NULL,
+      1,
+      &sdLogTaskHandle,
+      0 // Core 0
+    );
+  }
+
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 5.9");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 }
 unsigned long lastStatusTime = 0;
@@ -1236,6 +1323,25 @@ void loop() {
   updateEgt();
   updateRamps(); // Tính toán xung PWM mượt theo S-Curve & Exponential
   applyOutputs(); 
+
+  // --- 10Hz FreeRTOS Telemetry Queue Push (Core 1 -> Core 0) ---
+  static unsigned long lastLogMs = 0;
+  if (isLoggingActive && (millis() - lastLogMs >= 100)) {
+    lastLogMs = millis();
+    if (logQueue != NULL) {
+      LogData d;
+      d.ms = lastLogMs;
+      d.egt = egt.ok ? egt.c : 0.0f;
+      d.rpm = rpmData.rpm;
+      d.pump = pumpUs;
+      d.start = startUs;
+      d.sig = rpmData.signalRecent ? 1 : (rpmData.noise == RPM_REST_NOISE ? 2 : 0);
+      d.ign = ignCmd;
+      d.v1 = valve1Cmd;
+      d.v2 = valve2Cmd;
+      xQueueSend(logQueue, &d, 0); // Non-blocking push to Core 0 queue
+    }
+  }
 
   // --- Heartbeat LED ---
   if (millis() - lastHeartbeatMs >= 500) {

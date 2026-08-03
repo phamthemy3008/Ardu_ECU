@@ -324,7 +324,7 @@
   </div>
 
   <div class="header">
-    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v5.7 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
+    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v5.9 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
     <div style="display:flex; gap:10px;">
       <button id="connectBtn" class="btn">🔌 Kết Nối USB COM</button>
       <button id="disconnectBtn" class="btn btn-danger" style="display:none;">❌ Ngắt Kết Nối</button>
@@ -448,6 +448,18 @@
       <div class="btn-grid" style="margin-bottom:10px;">
         <button class="btn btn-success" onclick="saveSdConfig()">💾 Lưu SD Card</button>
         <button class="btn" style="background-color: #6c5ce7;" onclick="sendCmd('loadcfg')">📂 Tải Config SD</button>
+      </div>
+
+      <!-- FREE RTOS BLACKBOX LOGGING -->
+      <div style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; margin-bottom: 10px; border: 1px solid var(--border);">
+        <div style="font-size: 13px; font-weight: bold; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+          <span>🛸 Hộp Đen Telemetry (10Hz Core 0):</span>
+          <span id="logStatusTag" style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #636e72; color: white;">TẮT (OFF)</span>
+        </div>
+        <div class="btn-grid">
+          <button class="btn btn-danger" style="font-size: 12px; padding: 8px;" onclick="sendCmd('log start')">🔴 Bật Ghi Log</button>
+          <button class="btn" style="font-size: 12px; padding: 8px; background-color: #636e72;" onclick="sendCmd('log stop')">⏹️ Tắt Log</button>
+        </div>
       </div>
 
       <button class="btn btn-danger" style="width:100%; padding: 12px; font-size:15px; margin-bottom:8px;" onclick="stopEmergencyPurge()">🛑
@@ -948,6 +960,19 @@
             if (sdEl) {
               sdEl.innerText = sdVal;
               sdEl.style.color = (sdVal === "OK") ? "#00ff87" : "#ff7675";
+            }
+          }
+          if (part.startsWith("LOG=")) {
+            let logVal = part.replace("LOG=", "");
+            const logEl = document.getElementById('logStatusTag');
+            if (logEl) {
+              if (logVal === "1") {
+                logEl.innerText = "REC 🔴 10Hz (Core 0)";
+                logEl.style.background = "#e17055";
+              } else {
+                logEl.innerText = "TẮT (OFF)";
+                logEl.style.background = "#636e72";
+              }
             }
           }
           if (part.startsWith("IGN=")) {
