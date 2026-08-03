@@ -38,36 +38,26 @@ Ardu_ECU/
 
 ---
 
-## Tính Năng Nổi Bật (Version 4.2)
+## Tính Năng Nổi Bật (Version 5.8)
 
-- **Giao tiếp Web Serial API**: Không độ trễ mạng, điều khiển mượt mà với thanh trượt trực quan.
-- **Bảo mật giao thức CRC-8**: 
-  - Giao thức Serial được bảo vệ bằng checksum CRC-8.
-  - Loại bỏ hoàn toàn 100% các lệnh bị lật bit/lỗi do nhiễu từ motor/ESC truyền ngược qua dây UART. 
-  - Khóa bảo vệ: Tự động từ chối mọi lệnh không có mã CRC-8 hợp lệ sau khi kết nối Web.
-- **Chuỗi Bộ Lọc RPM 7 Tầng Chuyên Sâu (DSP & Physical Modeling)**:
-  1. *Min Pulse 330µs*: Chặn xung siêu ngắn dưới ngưỡng cảm biến.
-  2. *Dynamic Mask 75%*: Siết chặt vùng chết dựa trên chu kỳ ngắt trước đó.
-  3. *Median-5*: Sử dụng Sorting Network 5 phần tử (IRAM optimized), triệt tiêu hoàn toàn nhiễu chùm (Burst Noise 2 xung rác liên tiếp).
-  4. *Dynamic Outlier Guard*: Ngưỡng trần linh hoạt theo RPM hiện tại, ngăn xung vọt 50k-80k khi ngắt Đề.
-  5. *Rate Limiter*: Giới hạn tốc độ biến thiên RPM tối đa (Slew-rate), loại bỏ các cú nhảy RPM bất thường.
-  6. *Adaptive PWM-Aware Learning + Monotonicity Constraint*:
-     - Tự động học bản đồ quan hệ PWM ↔ RPM ở 20 bins (50µs/bin) khi tín hiệu sạch.
-     - Ràng buộc vật lý đơn điệu (Monotonicity Floor): PWM cao hơn bắt buộc RPM phải lớn hơn hoặc bằng mức đã học của PWM thấp hơn.
-     - Bảo vệ chuyển tiếp 2s sau khi tắt Đề: Đảm bảo RPM khi động cơ tự quay / coasting không bị ngắt rụp về 0.
-  7. *Cascaded Dual-EMA Bậc 2*: Bộ lọc LPF 2 tầng nối tiếp, tự động điều chỉnh hệ số lọc (Alpha) theo trạng thái Đề, Chuyển tiếp & Tốc độ quay của động cơ.
-- **Tách biệt 3 Luồng RPM**:
-  - `RRPM`: Vòng tua thô nguyên thủy 100% (Unfiltered) dùng làm mốc đối chứng.
-  - `FRPM`: Vòng tua lọc an toàn chuyên dùng cho Trigger.
-  - `RPM`: Vòng tua lọc mượt 2 tầng hiển thị trực quan lên đồ thị Web.
-- **Dự báo Nhiệt độ 3s (`PEGT`)**: Tính toán tốc độ tăng nhiệt `dEGT` (°C/s) và dự báo nhiệt độ EGT sau 3 giây để cảnh báo nguy cơ Hot-Start.
-- **Tách biệt Log thông minh**:
-  - **Màn hình Serial Log (RX / TX)**: Chuyên hiển thị lệnh điều khiển và phản hồi.
-  - **Màn hình Telemetry Log (WEB_DATA)**: Chuyên hiển thị dữ liệu cảm biến & tiến trình `ALEARN`.
-- **Điều khiển & Cấu hình**:
-  - Điều khiển độc lập Bơm (Pump), Mô-tơ Đề (Starter), Van 1, Van 2, Đánh lửa (Igniter).
-  - Lưu và nạp cấu hình thông số cài đặt từ thẻ nhớ MicroSD (`savecfg` / `loadcfg`).
-  - Nút Dừng Khẩn Cấp `ALL OFF` (Phím tắt `Space`).
+- **Thuật Toán Gia Tốc Mượt Bơm (Pump S-Curve Smoothstep Ramp 1.5s)**: Gia tốc ga nhiên liệu mượt mà theo đa thức bậc 3 ($3x^2 - 2x^3$), giúp động cơ rú ga mượt hệt như máy bay thật, chống sặc dầu & dập lửa.
+- **Thuật Toán Gia Tốc Đề (Starter Exponential Ramp Up 1.0s)**: Gia tốc lực kéo mô-tơ Đề theo đường cong mũ lũy thừa, thắng lực ma sát nghỉ ban đầu mà không làm xóc nhông Bendix.
+- **Giao tiếp Web Serial API & Mã Hóa CRC-8**: Điều khiển mượt mà, loại bỏ 100% các lệnh bị lật bit do nhiễu UART. Bổ sung **Toast Banner Tiếng Việt** sinh động.
+- **Hiển Thị Tín Hiệu (Signal & SD)**: Web UI phân tích trực tiếp trạng thái tín hiệu RPM (`SIG=OK/REST/ERROR`) và tình trạng thẻ nhớ SD.
+- **Chuỗi Bộ Lọc RPM 7 Tầng Nâng Cao**: 
+  1. *Min Pulse 330µs*: Chặn xung siêu ngắn.
+  2. *Dynamic Mask 66.7%*: Siết chặt vùng chết dựa trên chu kỳ ngắt trước đó, chống nhiễu tia lửa điện.
+  3. *Median-5*: Sử dụng Sorting Network 5 phần tử (IRAM optimized), triệt tiêu hoàn toàn nhiễu chùm.
+  4. *Dynamic Outlier Guard*: Ngưỡng trần linh hoạt theo RPM hiện tại.
+  5. *Rate Limiter*: Giới hạn tốc độ biến thiên RPM tối đa (Slew-rate).
+  6. *Adaptive PWM-Aware Learning*: Tự động học bản đồ quan hệ PWM ↔ RPM. Có logic tha bổng Jitter thông minh để học ngay cả khi nhiễu chổi than lắt nhắt.
+  7. *Cascaded Dual-EMA Bậc 2*: Bộ lọc LPF 2 tầng nối tiếp với hệ số lọc động, êm ái mọi dải ga.
+- **Bảo Vệ Chống Bùng Nhiệt Cấp Công Nghiệp (`PEGT > 740°C`)**: Tự động ngắt Bơm & xả mát buồng đốt. Tích hợp kẹp giới hạn biên độ biến thiên nhiệt (Gradient Clamping ±600°C/s) và trì hoãn xác nhận (Debouncing 2 chu kỳ) để chống nhiễu đỉnh (Spike).
+- **Khóa An Toàn Liên Động 2 Chiều (Pump-Valve Interlock)**: Ngăn chặn tự động bật bơm khi khóa van, hoặc tự động ngắt bơm khi 2 van nhiên liệu đóng.
+- **Dừng Khẩn Cấp Thông Minh**:
+  - Nhấp nút vật lý (hoặc phím Space): Dừng Bơm/Lửa/Van, tự động giữ Đề thổi khí nóng.
+  - Nhấn giữ nút 3s (hoặc Shift+Space): Dừng toàn bộ (Total Shutdown).
+- **Calib ESC Dễ Dàng**: Gỡ bỏ lệnh `esccal` xung đột cũ. Tự do Calib ESC bằng cách gạt tắt công tắc Ramp trên Web UI, kéo thanh trượt lên 2000µs và cấp nguồn.
 
 ---
 
@@ -99,7 +89,7 @@ Ardu_ECU/
 3. **Thông báo lỗi EGT `ERR(SHORT_VCC)` hoặc `ERR(OPEN)`:**
    - Kiểm tra lại dây Thermocouple K (MAX31855). Dây bị đứt, lỏng, hoặc chạm vỏ máy.
 
-4. **Lệnh debug RPM mới qua Serial:**
+4. **Lệnh debug RPM qua Serial:**
    - `rpmlearn`: Xem bảng 20 bin PWM ↔ RPM đã tự động học được.
    - `rpmlearn reset`: Xóa dữ liệu học và bắt đầu học lại.
 

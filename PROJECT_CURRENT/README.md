@@ -1,7 +1,7 @@
-# PROJECT_CURRENT — ECU Manual V1 (Version 5.4)
+# PROJECT_CURRENT — ECU Manual V1 (Version 5.8)
 
-**Trạng thái**: Đang phát triển tích cực (Phiên bản v5.4)  
-**Cập nhật**: 2026-07-31  
+**Trạng thái**: Đang phát triển tích cực (Phiên bản v5.8)  
+**Cập nhật**: 2026-08-03  
 
 ---
 
@@ -11,10 +11,10 @@
 PROJECT_CURRENT/
 │
 ├── Firmware/ECU_ManualV1/
-│   └── ECU_ManualV1.ino           ← Firmware ESP32 (Arduino IDE, v5.4)
+│   └── ECU_ManualV1.ino           ← Firmware ESP32 (Arduino IDE, v5.8)
 │
 ├── Tools/
-│   └── index.html                 ← Web Dashboard (Chrome/Edge, Web Serial API, v5.4)
+│   └── index.html                 ← Web Dashboard (Chrome/Edge, Web Serial API, v5.8)
 │
 ├── Hardware/
 │   ├── ECU_JET_20260723.net       ← Netlist PCB (PADS)
@@ -45,22 +45,26 @@ PROJECT_CURRENT/
 
 ---
 
-## Tính Năng Chính (v5.4)
+## Tính Năng Chính (v5.8)
 
 - **Thuật Toán Gia Tốc Mượt Bơm (Pump S-Curve Smoothstep Ramp 1.5s)**: Gia tốc ga nhiên liệu mượt mà theo đa thức bậc 3 ($3x^2 - 2x^3$), giúp động cơ rú ga mượt hệt như máy bay thật, chống sặc dầu & dập lửa. Có công tắc Bật/Tắt tùy chọn độc lập trên Web UI (`set pumpramp on|off`).
 - **Thuật Toán Gia Tốc Đề (Starter Exponential Ramp Up 1.0s)**: Gia tốc lực kéo mô-tơ Đề theo đường cong mũ lũy thừa, thắng lực ma sát nghỉ ban đầu mà không làm xóc nhông Bendix hay kẹt motor. Có công tắc Bật/Tắt tùy chọn độc lập trên Web UI (`set starterramp on|off`).
-- **Web Serial API & CRC-8**: Điều khiển mượt mà, chống nhiễu lệnh UART bằng mã CRC-8.
-- **Bộ Lọc RPM 7 Tầng**: Min Pulse → Dynamic Mask 75% → Median-5 → Dynamic Outlier Guard → Rate Limiter → Adaptive PWM-Aware Learning (Monotonicity Floor + Hysteresis) → Cascaded Dual-EMA Bậc 2.
+- **Web Serial API & CRC-8**: Điều khiển mượt mà, chống nhiễu lệnh UART bằng mã CRC-8. Mở rộng với các thông báo **Toast Banner Tiếng Việt** sinh động.
+- **Hiển Thị Tín Hiệu (Signal & SD)**: Web UI phân tích trực tiếp trạng thái tín hiệu RPM (`SIG=OK/REST/ERROR`) và tình trạng thẻ nhớ SD.
+- **Bộ Lọc RPM 7 Tầng Nâng Cao**: Min Pulse → Dynamic Mask 66.7% (Siết chặt chống tia lửa điện) → Median-5 → Dynamic Outlier Guard → Rate Limiter → Adaptive PWM-Aware Learning (với logic tha bổng Jitter) → Cascaded Dual-EMA Bậc 2 (Hệ số lọc động, mượt hơn ở dải thấp).
 - **Dừng Khẩn Cấp Thổi Khí Nóng (`estop`)**: Ngắt Bơm/Lửa/Van nhưng tự động bật/giữ Mô-tơ Đề 1300 µs để làm mát buồng đốt khi EGT > 80°C.
 - **Nút Cứng Vật Lý Đa Năng (`BTN1` / IO22)**:
   - Nhấp 1 lần (< 3s): Kích hoạt Dừng Khẩn Cấp làm mát.
   - Nhấn giữ 3s (>= 3s): Dừng Toàn Bộ (Full Shutdown, ngắt cả Đề).
 - **Khóa An Toàn 2 Chiều (Pump-Valve Interlock)**:
   - Không cho bật Bơm khi cả 2 van nhiên liệu đang ĐÓNG (`ERR:E01`).
-  - Tự động ngắt Bơm khi cả 2 van bị đóng (`EV:A02`).
+  - Tự động ngắt Bơm tức thì (bypass Ramp) khi cả 2 van bị đóng (`EV:A02`).
   - Tự động đóng cả 2 van khi tắt Bơm (`EV:A01`).
-- **Bảo Vệ Chống Bùng Nhiệt (`PEGT > 740°C`)**: Tự động ngắt Bơm & xả mát khi nhiệt độ dự báo 3s vượt 740°C (`ERR:E02`).
+- **Bảo Vệ Chống Bùng Nhiệt Cấp Công Nghiệp (`PEGT > 740°C`)**: 
+  - Kẹp giới hạn biên độ biến thiên nhiệt (Gradient Clamping ±600°C/s) để loại bỏ nhiễu đỉnh (Spike).
+  - Trì hoãn xác nhận (Debouncing): Chỉ ngắt khi cảnh báo quá nhiệt xuất hiện >= 2 mẫu liên tiếp (~240ms) (`ERR:E02`).
 - **Tối Ưu Tài Nguyên ESP32 (Compact Event/Error Codes)**: ECU chỉ phát các mã siêu nhẹ (`EV:A01`..`EV:A05`, `ERR:E01`..`ERR:E02`) qua Serial; Web UI tự động dịch thành Thẻ Banner Thông Báo Tiếng Việt nổi bật.
+- **Calib ESC Thông Minh**: Loại bỏ lệnh calib thủ công gây xung đột ở các phiên bản cũ. Người dùng có thể dễ dàng calib bằng cách tắt công tắc Ramp trên Web UI, kéo ga 2000µs và cấp nguồn.
 - **Heartbeat Status LED (IO2)**: Nháy 1Hz báo hiệu ECU đang hoạt động.
 
 ---
