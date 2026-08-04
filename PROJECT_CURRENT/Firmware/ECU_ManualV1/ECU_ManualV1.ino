@@ -637,6 +637,19 @@ void updateRpm() {
           rpmData.prevRawRpmCandidate = expectedRpm;
         }
       }
+    } else if (rpmData.rpmFiltered > 500.0f && rawRpmCandidate > 0.0f) {
+      // --- STEADY-STATE PHYSICAL GUARD: Ràng buộc gia tốc vật lý khi đã chạy ổn định ---
+      // Khi không Đề và ngoài cửa sổ chuyển tiếp, mô hình học theo PWM Đề không còn dùng được
+      // (Đề đã tắt lâu). Dùng rpmFiltered (giá trị đã lọc, tin cậy) làm mỏ neo và giới hạn %
+      // thay đổi tối đa mỗi chu kỳ 100ms theo gia tốc turbine thực tế, thay vì chỉ dựa vào
+      // slew tuyệt đối (quá lỏng ở dải RPM thấp/trung, ví dụ 5000rpm/100ms = 250% ở mức 2000rpm).
+      float maxPct = (rpmData.noise <= RPM_WARN) ? 0.25f : 0.15f; // tín hiệu sạch: nới hơn một chút
+      float lo = rpmData.rpmFiltered * (1.0f - maxPct);
+      float hi = rpmData.rpmFiltered * (1.0f + maxPct);
+      if (rawRpmCandidate < lo || rawRpmCandidate > hi) {
+        rawRpmCandidate = constrain(rawRpmCandidate, lo, hi);
+        rpmData.prevRawRpmCandidate = rawRpmCandidate;
+      }
     }
 
     // --- CASCADED DUAL-EMA bậc 2: Lọc 2 tầng nối tiếp ---
