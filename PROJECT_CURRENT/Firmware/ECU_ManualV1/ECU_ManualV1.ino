@@ -101,6 +101,7 @@ volatile uint64_t isrSumDtUs = 0;
 volatile uint64_t isrSumDtSqUs = 0;
 volatile uint32_t isrHist[5] = {0, 0, 0, 0, 0};
 volatile uint8_t  isrHistIdx = 0;
+volatile bool     isrAccelerating = false; // true nếu chu kỳ vừa rút ngắn >15% (đang tăng tốc)
 
 struct RpmState {
   float rpm = 0.0f, rpmStage1 = 0.0f, rpmWindow = 0.0f, rpmPeriod = 0.0f, rpmFiltered = 0.0f, rawRawRpm = 0.0f;
@@ -447,7 +448,10 @@ void IRAM_ATTR rpmISR() {
     uint32_t dtAcceptedUs = nowUs - isrLastAcceptedPulseUs;
     uint32_t maskUs = filterUs;
     if (isrLastPeriodUs > 0 && isrLastPeriodUs <= 100000UL) {
-      uint32_t dynMaskUs = (isrLastPeriodUs * 2UL) / 3UL; // 66.7% of previous period (an toàn hơn 75%)
+      // Khi đang tăng tốc (chu kỳ vừa rút ngắn), mask 2/3 chu kỳ CŨ sẽ quá bảo thủ
+      // và trễ theo tốc độ thực -> có thể loại nhầm xung hợp lệ đang nhanh dần.
+      // Nới mask xuống 1/2 trong pha tăng tốc để bám kịp, giữ 2/3 khi ổn định/giảm tốc.
+      uint32_t dynMaskUs = isrAccelerating ? (isrLastPeriodUs / 2UL) : (isrLastPeriodUs * 2UL) / 3UL;
       if (dynMaskUs > 50000UL) dynMaskUs = 50000UL;
       if (dynMaskUs > maskUs) maskUs = dynMaskUs;
     }
@@ -468,6 +472,9 @@ void IRAM_ATTR rpmISR() {
     #undef SORT2
     uint32_t medianUs = s[2]; // Phần tử giữa sau khi sắp xếp
 
+    // Đánh dấu đang tăng tốc nếu chu kỳ mới ngắn hơn chu kỳ cũ >15% -> mask kỳ sau sẽ nới lỏng
+    isrAccelerating = (isrLastPeriodUs > 0) && (medianUs < (isrLastPeriodUs * 85UL) / 100UL);
+
     isrLastPeriodUs = medianUs; // Dùng median thay vì dtAcceptedUs để không bị lock-out mask khi rớt 1 xung
     isrAcceptedIntervals++;
     isrSumDtUs += medianUs; // Cộng median thay vì raw để tính trung bình tuyệt đối tĩnh
@@ -485,6 +492,7 @@ void resetRpmStats() {
   isrRawEdges = 0; isrAcceptedPulses = 0; isrRejectedEdges = 0; isrAcceptedIntervals = 0;
   isrSumDtUs = 0; isrSumDtSqUs = 0; isrMinDtUs = 0xFFFFFFFFUL; isrMaxDtUs = 0;
   for (uint8_t i = 0; i < 5; i++) isrHist[i] = 0; isrHistIdx = 0;
+  isrAccelerating = false;
   interrupts();
   rpmData = RpmState();
   Serial.println("RPM stats reset.");
@@ -628,6 +636,19 @@ void updateRpm() {
           rawRpmCandidate = expectedRpm;
           rpmData.prevRawRpmCandidate = expectedRpm;
         }
+      }
+    } else if (rpmData.rpmFiltered > 500.0f && rawRpmCandidate > 0.0f) {
+      // --- STEADY-STATE PHYSICAL GUARD: Ràng buộc gia tốc vật lý khi đã chạy ổn định ---
+      // Khi không Đề và ngoài cửa sổ chuyển tiếp, mô hình học theo PWM Đề không còn dùng được
+      // (Đề đã tắt lâu). Dùng rpmFiltered (giá trị đã lọc, tin cậy) làm mỏ neo và giới hạn %
+      // thay đổi tối đa mỗi chu kỳ 100ms theo gia tốc turbine thực tế, thay vì chỉ dựa vào
+      // slew tuyệt đối (quá lỏng ở dải RPM thấp/trung, ví dụ 5000rpm/100ms = 250% ở mức 2000rpm).
+      float maxPct = (rpmData.noise <= RPM_WARN) ? 0.25f : 0.15f; // tín hiệu sạch: nới hơn một chút
+      float lo = rpmData.rpmFiltered * (1.0f - maxPct);
+      float hi = rpmData.rpmFiltered * (1.0f + maxPct);
+      if (rawRpmCandidate < lo || rawRpmCandidate > hi) {
+        rawRpmCandidate = constrain(rawRpmCandidate, lo, hi);
+        rpmData.prevRawRpmCandidate = rawRpmCandidate;
       }
     }
 
