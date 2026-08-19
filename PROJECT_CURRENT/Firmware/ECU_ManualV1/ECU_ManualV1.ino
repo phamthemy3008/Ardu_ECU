@@ -1442,7 +1442,7 @@ void sendWebStatus() {
   } else {
     Serial.print("OFF");
   }
-  Serial.print(" | VER=7.9");
+  Serial.print(" | VER=8.0");
   Serial.println();
 }
 
@@ -1860,7 +1860,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 7.9");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 8.0");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 
   if (strlen(wifiSsid) > 0) {
