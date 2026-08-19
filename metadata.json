@@ -1,0 +1,8 @@
+{
+  "name": "Ardu ECU Dashboard",
+  "description": "ECU Web Serial Dashboard and Jet Engine Telemetry Monitor for Mini Jet Engines",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

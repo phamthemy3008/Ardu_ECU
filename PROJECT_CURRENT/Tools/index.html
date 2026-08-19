@@ -7,6 +7,8 @@
   <title>ECU Web Serial Dashboard</title>
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- ESPTool JS Bundle for Web Serial ESP32 Flashing -->
+  <script src="https://unpkg.com/esptool-js@0.4.3/bundle.js"></script>
   <style>
     :root {
       --bg-color: #121212;
@@ -311,6 +313,92 @@
     input:checked + .toggle-slider:before {
       transform: translateX(22px);
     }
+
+    /* AI ANALYSIS MODAL STYLES */
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* TAG / TAB NAVIGATION SYSTEM FOR MODALS */
+    .ui-tab-bar {
+      display: flex;
+      gap: 6px;
+      border-bottom: 1px solid #30363d;
+      padding-bottom: 10px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .ui-tab-btn {
+      background: #161b22;
+      color: #8b949e;
+      border: 1px solid #30363d;
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .ui-tab-btn:hover {
+      background: #21262d;
+      color: #f0f6fc;
+      border-color: #484f58;
+    }
+    .ui-tab-btn.active-tab {
+      background: #00b894 !important;
+      color: #ffffff !important;
+      border-color: #00b894 !important;
+      box-shadow: 0 0 12px rgba(0, 184, 148, 0.4);
+    }
+    .ui-tab-btn.active-tab-blue {
+      background: #0984e3 !important;
+      color: #ffffff !important;
+      border-color: #0984e3 !important;
+      box-shadow: 0 0 12px rgba(9, 132, 227, 0.4);
+    }
+    .ui-tab-content {
+      animation: fadeInTab 0.2s ease-in-out;
+    }
+    @keyframes fadeInTab {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .ai-content h1, .ai-content h2, .ai-content h3 {
+      color: #00adb5;
+      margin-top: 15px;
+      margin-bottom: 8px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 4px;
+      font-size: 16px;
+    }
+    .ai-content ul, .ai-content ol {
+      padding-left: 20px;
+      margin: 8px 0;
+    }
+    .ai-content li {
+      margin-bottom: 6px;
+    }
+    .ai-content code {
+      background: #2a2a2a;
+      color: #00ff87;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    .ai-content blockquote {
+      background: rgba(255, 46, 99, 0.15);
+      border-left: 4px solid #ff2e63;
+      padding: 8px 12px;
+      margin: 10px 0;
+      border-radius: 0 4px 4px 0;
+    }
+    .ai-content strong {
+      color: #00ff87;
+    }
   </style>
 </head>
 
@@ -323,17 +411,373 @@
     <p style="font-size: 1.5rem; text-align: center;">Vui lòng kiểm tra lại cáp USB, dây tín hiệu hoặc nguồn điện!</p>
   </div>
 
+  <!-- MODAL PHÂN TÍCH DỮ LIỆU AI -->
+  <div id="aiAnalysisModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:10000; align-items:center; justify-content:center; backdrop-filter: blur(5px);">
+    <div style="background:#1e1e1e; border:1px solid #00adb5; border-radius:12px; width:92%; max-width:850px; max-height:88vh; display:flex; flex-direction:column; box-shadow: 0 10px 35px rgba(0,0,0,0.8); overflow:hidden;">
+      <div style="padding:15px 20px; background:#2a2a2a; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <h3 style="margin:0; color:#00adb5; font-size:16px; display:flex; align-items:center; gap:8px;">
+          <span>🧠 Phân Tích Dữ Liệu Log & Telemetry AI</span>
+          <span id="aiModelBadge" style="font-size:11px; background:rgba(0,173,181,0.15); color:#00adb5; padding:2px 8px; border-radius:10px; border:1px solid rgba(0,173,181,0.3);">Gemini 3.6 Flash</span>
+        </h3>
+        
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:12px; color:#aaa;">Chế độ AI:</span>
+          <button id="aiFlashBtn" class="btn" style="padding:4px 10px; font-size:12px; background:#00adb5;" onclick="analyzeConsoleData(false)">⚡ Phân Tích Nhanh</button>
+          <button id="aiThinkingBtn" class="btn" style="padding:4px 10px; font-size:12px; background:#333;" onclick="analyzeConsoleData(true)">🧠 Chẩn Đoán Sâu (High Thinking)</button>
+          <button style="background:transparent; border:none; color:#aaa; font-size:22px; cursor:pointer; margin-left:10px;" onclick="closeAiModal()">✕</button>
+        </div>
+      </div>
+      
+      <div id="aiModalBody" style="padding:20px; overflow-y:auto; flex:1; color:#eee; font-size:14px; line-height:1.6;">
+        <div id="aiLoading" style="display:none; text-align:center; padding:50px 20px;">
+          <div class="spinner" style="border: 4px solid rgba(255,255,255,0.1); width: 45px; height: 45px; border-radius: 50%; border-left-color: #00adb5; animation: spin 1s linear infinite; margin: 0 auto 18px auto;"></div>
+          <div id="aiLoadingText" style="color: #00adb5; font-weight: bold; font-size: 16px;">Đang trích xuất mã lỗi ERR & phân tích telemetry bằng Gemini AI...</div>
+          <div style="color: #888; font-size: 13px; margin-top: 8px;">Đang tổng hợp thông số EGT, PEGT, RPM, van & nhật ký hệ thống...</div>
+        </div>
+        
+        <div id="aiResult" style="display:none;"></div>
+      </div>
+      
+      <div style="padding:12px 20px; background:#2a2a2a; border-top:1px solid #333; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <span style="font-size:12px; color:#888;">Gợi ý vận hành tự động cho Ardu ECU Jet Engine</span>
+        <div style="display:flex; gap:10px;">
+          <button class="btn" style="background:#333; padding:6px 12px; font-size:13px;" onclick="copyAiResult()">📋 Sao Chép Kết Quả</button>
+          <button class="btn" style="background:#00adb5; padding:6px 12px; font-size:13px;" onclick="analyzeConsoleData(currentAiDeepMode)">🔄 Phân Tích Lại</button>
+          <button class="btn btn-danger" style="padding:6px 12px; font-size:13px;" onclick="closeAiModal()">Đóng</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL QUẢN LÝ & NẠP FIRMWARE ECU -->
+  <div id="firmwareModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:10000; align-items:center; justify-content:center; backdrop-filter: blur(8px);">
+    <div style="background:#161b22; border:1px solid #30363d; border-radius:14px; width:92%; max-width:820px; max-height:92vh; display:flex; flex-direction:column; box-shadow: 0 15px 40px rgba(0,0,0,0.9); overflow:hidden;">
+      
+      <!-- Header Modal -->
+      <div style="padding:14px 20px; background:#21262d; border-bottom:1px solid #30363d; display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0; color:#58a6ff; font-size:16px; display:flex; align-items:center; gap:8px;">
+          <span>⚡ Nạp & Tải Firmware ESP32 (Web Serial Flasher)</span>
+          <span style="font-size:11px; background:rgba(56,139,253,0.15); color:#79c0ff; padding:2px 8px; border-radius:12px; border:1px solid rgba(56,139,253,0.3);">ECU Manual V1</span>
+        </h3>
+        <button style="background:transparent; border:none; color:#8b949e; font-size:22px; cursor:pointer; line-height:1;" onclick="closeFirmwareModal()">✕</button>
+      </div>
+
+      <div style="padding:18px 20px; overflow-y:auto; flex:1; color:#c9d1d9; font-size:13px; line-height:1.5;">
+        
+        <!-- TAG / TAB BAR HEADER -->
+        <div class="ui-tab-bar">
+          <button id="fwTabBtn_flash" class="ui-tab-btn active-tab-blue" onclick="switchFwTab('flash')">
+            <span>⚡ Web Serial Flasher</span>
+          </button>
+          <button id="fwTabBtn_source" class="ui-tab-btn" onclick="switchFwTab('source')">
+            <span>📥 Tải Mã Nguồn (.ino)</span>
+          </button>
+        </div>
+
+        <!-- TAB CONTENT 1: WEB SERIAL FLASHER -->
+        <div id="fwTabContent_flash" class="ui-tab-content" style="display:block;">
+          <div style="background:#0d1117; border:1px solid #30363d; border-radius:10px; padding:16px; margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <h4 style="margin:0; color:#38bdf8; font-size:14px; font-weight:bold; display:flex; align-items:center; gap:6px;">
+                ⚡ Nạp Firmware Trực Tiếp Vào ESP32 Cắm USB COM
+              </h4>
+              <span style="font-size:11px; color:#8b949e;">Tốc độ cao • Tự động Bootloader</span>
+            </div>
+
+            <!-- Configuration Grid -->
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:12px; margin-bottom:14px;">
+              
+              <!-- Nguồn Binary -->
+              <div style="background:#161b22; padding:12px; border-radius:8px; border:1px solid #21262d;">
+                <label style="font-size:12px; font-weight:bold; color:#f0f6fc; display:block; margin-bottom:8px;">📦 Nguồn File Binary (.bin):</label>
+                
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; background:rgba(255,255,255,0.02); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">
+                    <input type="radio" name="fwSource" value="default" checked onchange="toggleFwSourceInput()">
+                    <span>Dùng Firmware Server Mặc Định (<b id="fwModalDefaultLabel" style="color:#38bdf8;">v6.5 ESP32</b>)</span>
+                  </label>
+                  
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; background:rgba(255,255,255,0.02); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">
+                    <input type="radio" name="fwSource" value="custom" onchange="toggleFwSourceInput()">
+                    <span>Chọn File .bin Từ Máy Tính</span>
+                  </label>
+
+                  <div id="customFwFileContainer" style="display:none; margin-top:2px; padding-left:4px;">
+                    <input type="file" id="fwFileInput" accept=".bin" style="font-size:12px; color:#8b949e; width:100%;">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Cấu Hình Flasher -->
+              <div style="background:#161b22; padding:12px; border-radius:8px; border:1px solid #21262d; display:flex; flex-direction:column; justify-content:center;">
+                <label style="font-size:12px; font-weight:bold; color:#f0f6fc; display:block; margin-bottom:8px;">⚙️ Cấu Hình Nạp Bootloader:</label>
+                
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:12px; color:#8b949e;">Baudrate:</span>
+                    <select id="fwBaudSelect" style="background:#0d1117; color:#4ade80; border:1px solid #30363d; padding:4px 8px; border-radius:6px; font-size:12px;">
+                      <option value="921600" selected>921600 (Nhanh - Khuyên dùng)</option>
+                      <option value="460800">460800 (Trung bình)</option>
+                      <option value="115200">115200 (An toàn/Tiêu chuẩn)</option>
+                    </select>
+                  </div>
+
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:12px; color:#8b949e;">Flash Offset:</span>
+                    <input type="text" id="fwOffsetInput" value="0x10000" style="background:#0d1117; color:#38bdf8; border:1px solid #30363d; padding:4px 8px; border-radius:6px; font-size:12px; width:90px; text-align:center; font-family:monospace;">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Progress Bar -->
+            <div id="fwProgressWrapper" style="display:none; margin-bottom:14px; background:rgba(0,0,0,0.5); padding:10px 14px; border-radius:8px; border:1px solid #00b894;">
+              <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px; color:#f0f6fc; font-weight:bold;">
+                <span id="fwStatusText" style="color:#38bdf8;">Đang chuẩn bị nạp...</span>
+                <span id="fwPercentText" style="font-weight:bold; color:#4ade80; font-size:13px;">0%</span>
+              </div>
+              <div style="width:100%; background:#0f141c; height:18px; border-radius:9px; overflow:hidden; border:1px solid #30363d;">
+                <div id="fwProgressBar" style="width:0%; height:100%; background:linear-gradient(90deg, #38bdf8, #4ade80, #00b894); box-shadow:0 0 10px rgba(74,222,128,0.5); transition:width 0.15s ease-out;"></div>
+              </div>
+            </div>
+
+            <!-- Console Terminal Log -->
+            <div style="margin-bottom:14px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span style="font-size:12px; color:#8b949e;">📜 Log Nhật Ký Nạp Code:</span>
+                <button class="btn btn-danger" style="padding:2px 8px; font-size:11px;" onclick="clearFwLog()">Clear Log</button>
+              </div>
+              <div id="fwConsoleLog" style="background:#000; color:#4ade80; font-family:Consolas, Monaco, monospace; font-size:11px; padding:10px; border-radius:6px; height:110px; overflow-y:auto; border:1px solid #30363d; white-space:pre-wrap; line-height:1.4;">
+[System] Sẵn sàng nạp Firmware. Kết nối cáp USB ESP32 và nhấn "Bắt Đầu Nạp Firmware".
+              </div>
+            </div>
+
+            <!-- Main Action Button -->
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+              <button id="startFwFlashBtn" class="btn btn-success" style="padding:10px 22px; font-size:13px; font-weight:bold; background-color:#00b894;" onclick="startWebSerialFlash()">
+                🚀 BẮT ĐẦU NẠP FIRMWARE
+              </button>
+              <button id="cancelFwFlashBtn" class="btn btn-danger" style="padding:10px 16px; font-size:13px; display:none;" onclick="cancelWebSerialFlash()">
+                🛑 Hủy Nạp
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT 2: TẢI CODE MÃ NGUỒN SOURCE -->
+        <div id="fwTabContent_source" class="ui-tab-content" style="display:none;">
+          <div style="background:#0d1117; border:1px solid #30363d; border-radius:10px; padding:18px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+              <div>
+                <h4 style="margin:0; color:#38bdf8; font-size:15px; font-weight:bold;">📥 Tải File Code Mã Nguồn (.ino)</h4>
+                <div style="font-size:12px; color:#8b949e; margin-top:4px;">Tải file <code style="color:#38bdf8;">ECU_ManualV1.ino</code> để mở trong Arduino IDE / PlatformIO / VS Code.</div>
+              </div>
+              <span style="font-size:12px; color:#8b949e; background:rgba(255,255,255,0.03); padding:4px 10px; border-radius:6px; border:1px solid #21262d;">Phiên bản: <b id="fwModalVerBadge" style="color:#4ade80;">v7.6</b></span>
+            </div>
+
+            <p style="font-size:13px; color:#c9d1d9; line-height:1.6; margin-bottom:16px;">
+              Mã nguồn cung cấp đầy đủ logic điều khiển vòi phun, bugi mồi, cảm biến EGT/MAX31855, van nhiên liệu, ngắt an toàn tự động & giao tiếp Serial Telemetry.
+            </p>
+
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <a href="/api/firmware/download?type=ino" download="ECU_ManualV1.ino" class="btn" style="background-color:#00b894; text-decoration:none; display:inline-flex; align-items:center; gap:8px; font-size:13px; padding:8px 16px; font-weight:bold;">
+                📥 Tải File Source (.ino)
+              </a>
+              <button class="btn" style="background-color:#6c5ce7; font-size:13px; padding:8px 16px;" onclick="copyFirmwareDownloadLink()">
+                📋 Copy Link Tải
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Footer Modal -->
+      <div style="padding:10px 20px; background:#21262d; border-top:1px solid #30363d; display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:11px; color:#8b949e;">💡 Mẹo: Nếu không tự động kết nối Bootloader, giữ nút BOOT/IO0 trên ESP32 trong 2 giây.</span>
+        <button class="btn btn-danger" style="padding:5px 14px; font-size:12px;" onclick="closeFirmwareModal()">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL XÁC NHẬN NẠP FIRMWARE (FLASH CONFIRMATION MODAL) -->
+  <div id="flashConfirmModal" class="modal-overlay" style="display:none; align-items:center; justify-content:center; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:10001; backdrop-filter:blur(6px);">
+    <div style="background:#1a202c; border:2px solid #00b894; border-radius:14px; padding:24px; max-width:520px; width:92%; box-shadow:0 0 30px rgba(0, 184, 148, 0.4); color:#fff;">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+        <span style="font-size:28px;">⚡</span>
+        <h3 style="margin:0; color:#00ff87; font-size:18px;">XÁC NHẬN NẠP FIRMWARE ESP32</h3>
+      </div>
+      
+      <p style="font-size:13px; color:#cbd5e0; margin-bottom:15px; line-height:1.5;">
+        Vui lòng kiểm tra kỹ thông tin file nạp và địa chỉ Flash offset bên dưới để tránh nạp nhầm phân vùng hoặc sai file binary:
+      </p>
+
+      <div style="background:#0f172a; border:1px solid #334155; border-radius:10px; padding:14px; margin-bottom:16px; display:flex; flex-direction:column; gap:8px; font-size:13px;">
+        <div style="display:flex; justify-content:space-between; border-bottom:1px solid #1e293b; padding-bottom:6px;">
+          <span style="color:#94a3b8;">📄 File Firmware:</span>
+          <b id="confirmFileName" style="color:#38bdf8;">--</b>
+        </div>
+        <div style="display:flex; justify-content:space-between; border-bottom:1px solid #1e293b; padding-bottom:6px;">
+          <span style="color:#94a3b8;">📦 Dung lượng:</span>
+          <b id="confirmFileSize" style="color:#facc15;">--</b>
+        </div>
+        <div style="display:flex; justify-content:space-between; border-bottom:1px solid #1e293b; padding-bottom:6px;">
+          <span style="color:#94a3b8;">📍 Địa chỉ Flash Offset:</span>
+          <b id="confirmOffset" style="color:#a855f7; font-family:monospace;">0x10000</b>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+          <span style="color:#94a3b8;">🚀 Tốc độ Baud (Baudrate):</span>
+          <b id="confirmBaud" style="color:#4ade80;">921600 Baud</b>
+        </div>
+      </div>
+
+      <div style="background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.3); padding:10px 12px; border-radius:8px; font-size:12px; color:#fca5a5; margin-bottom:18px; line-height:1.4;">
+        ⚠️ <b>Cảnh báo an toàn:</b> Địa chỉ offset <code>0x10000</code> là phân vùng chứa Firmware App của ESP32. Đảm bảo ESP32 đang cắm cáp USB và chọn đúng cổng COM.
+      </div>
+
+      <div style="display:flex; gap:12px; justify-content:flex-end;">
+        <button class="btn btn-danger" style="padding:10px 18px; font-size:14px;" onclick="closeFlashConfirmModal()">❌ Hủy Bỏ</button>
+        <button class="btn btn-success" style="padding:10px 22px; font-size:14px; font-weight:bold; background-color:#00b894;" onclick="executeWebSerialFlash()">🚀 XÁC NHẬN & NẠP NGAY</button>
+      </div>
+    </div>
+  </div>
+
   <div class="header">
-    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;">Web UI v5.9 | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span></span></h2>
-    <div style="display:flex; gap:10px;">
+    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;"><span id="webUiVerLabel">Web UI v7.8</span> | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span> <span id="rxHzBadge" style="font-size: 11px; font-weight: bold; color: #00ff87; background: rgba(0, 255, 135, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(0, 255, 135, 0.3); margin-left: 10px;" title="Tần số mẫu (Sampling Rate) nhận dữ liệu từ Serial / Telemetry">📡 Serial Rx: <span id="rxHzVal" style="color:#00ff87;">0.0</span> Hz</span> <span id="otaBadge" style="font-size: 11px; font-weight: bold; color: #74b9ff; background: rgba(116, 185, 255, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(116, 185, 255, 0.3); margin-left: 6px;" title="Trạng thái Nạp OTA (Over-The-Air) trên Core 0">📶 OTA: <span id="otaVal" style="color:#74b9ff;">OFF</span></span> <span id="wifiBadge" style="font-size: 11px; font-weight: bold; color: #fdcb6e; background: rgba(253, 203, 110, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(253, 203, 110, 0.3); margin-left: 6px;" title="Địa chỉ IP Wi-Fi ESP32">📶 Wi-Fi: <span id="wifiVal" style="color:#fdcb6e;">OFF</span></span></span></h2>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <button id="wifiConfigBtn" class="btn" style="background-color: #00b894;" onclick="openWifiModal()">📶 Cấu Hình Wi-Fi & OTA</button>
+      <button id="audioAlertBtn" class="btn" style="background-color: #2d3436; border: 1px solid #555;" onclick="toggleAudioAlert()">🔔 Âm Cảnh Báo: Bật</button>
+      <button id="simBtn" class="btn" style="background-color: #6c5ce7;">🎮 Mode Giả Lập (Demo)</button>
+      <button id="firmwareBtn" class="btn" style="background-color: #0984e3;" onclick="openFirmwareModal()">⚡ Nạp & Tải Firmware</button>
       <button id="connectBtn" class="btn">🔌 Kết Nối USB COM</button>
       <button id="disconnectBtn" class="btn btn-danger" style="display:none;">❌ Ngắt Kết Nối</button>
     </div>
   </div>
 
+  <!-- MODAL THÔNG BÁO CÓ FIRMWARE MỚI OTA (30s Countdown) -->
+  <div id="otaPendingModal" class="modal-overlay" style="display:none; align-items:center; justify-content:center; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:10000; backdrop-filter:blur(5px);">
+    <div style="background:#1e1e24; border:2px solid #74b9ff; border-radius:12px; padding:24px; max-width:480px; width:90%; text-align:center; box-shadow:0 0 25px rgba(116, 185, 255, 0.4);">
+      <div style="font-size:40px; margin-bottom:10px;">🚀 📶</div>
+      <h3 style="margin:0 0 10px 0; color:#74b9ff; font-size:20px;">CÓ PHIÊN BẢN FIRMWARE MỚI TỪ SERVER!</h3>
+      <p style="font-size:14px; color:#ddd; margin-bottom:15px; line-height:1.5;">
+        Hệ thống phát hiện file bản nạp mới tại Remote HTTP OTA Server. Bạn có muốn tiến hành Cập Nhật OTA ngay không?
+      </p>
+      <div style="background:#111; padding:10px; border-radius:8px; border:1px solid #333; margin-bottom:15px; font-size:13px; color:#fdcb6e;">
+        ⏱️ Tự động HỦY nếu không phản hồi trong: <b id="otaCountdownVal" style="font-size:22px; color:#ff7675;">30</b> <b>giây</b>
+      </div>
+      <div style="display:flex; gap:12px; justify-content:center;">
+        <button class="btn" style="flex:1; padding:12px; font-size:15px; background-color:#00b894; font-weight:bold; color:#fff;" onclick="confirmOtaCmd()">✅ Cập Nhật Firmware Ngay</button>
+        <button class="btn btn-danger" style="flex:1; padding:12px; font-size:15px; font-weight:bold;" onclick="cancelOtaCmd()">❌ Hủy / Bỏ Qua</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL CẤU HÌNH WI-FI & OTA -->
+  <div id="wifiConfigModal" class="modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center; backdrop-filter:blur(6px);">
+    <div style="background:#161b22; border:1px solid #30363d; border-radius:14px; width:90%; max-width:540px; padding:20px; box-shadow:0 15px 35px rgba(0,0,0,0.8); color:#c9d1d9;">
+      
+      <!-- Header -->
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid #30363d; padding-bottom:10px;">
+        <h3 style="margin:0; color:#4ade80; font-size:16px; display:flex; align-items:center; gap:8px;">
+          <span>📶 Cấu Hình Wi-Fi Router & Nạp OTA</span>
+        </h3>
+        <button class="btn btn-danger" style="padding:2px 10px; font-size:13px;" onclick="closeWifiModal()">✕</button>
+      </div>
+
+      <!-- TAG / TAB BAR HEADER -->
+      <div class="ui-tab-bar">
+        <button id="wifiTabBtn_wifi" class="ui-tab-btn active-tab" onclick="switchWifiTab('wifi')">
+          <span>📶 Local Wi-Fi Router</span>
+        </button>
+        <button id="wifiTabBtn_ota" class="ui-tab-btn" onclick="switchWifiTab('ota')">
+          <span>🌐 Máy Chủ HTTP OTA</span>
+        </button>
+      </div>
+
+      <!-- TAB CONTENT 1: WI-FI SETTINGS -->
+      <div id="wifiTabContent_wifi" class="ui-tab-content" style="display:block;">
+        <div style="background:#0d1117; padding:14px; border-radius:10px; border:1px solid #21262d; display:flex; flex-direction:column; gap:12px;">
+          <div style="font-size:13px; font-weight:bold; color:#f0f6fc; display:flex; justify-content:space-between; align-items:center;">
+            <span>🌐 Thông Số Mạng Local Wi-Fi:</span>
+            <button class="btn" style="padding:4px 10px; font-size:11px; background-color:#6c5ce7;" onclick="scanWifiCmd()">🔍 Quét Wi-Fi Local</button>
+          </div>
+          
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <div>
+              <label style="font-size:11px; color:#8b949e; display:block; margin-bottom:4px;">Tên Wi-Fi (SSID):</label>
+              <input type="text" id="wifiSsidInput" placeholder="VD: Router_House_2.4G" style="width:100%; padding:8px 12px; background:#161b22; border:1px solid #30363d; border-radius:6px; color:#fff; font-size:13px;">
+            </div>
+
+            <div id="wifiScanContainer" style="display:none; background:#161b22; border:1px solid #30363d; border-radius:6px; padding:10px; max-height:130px; overflow-y:auto;">
+              <div style="font-size:11px; color:#8b949e; margin-bottom:6px;">Mạng Wi-Fi tìm thấy:</div>
+              <div id="wifiScanList" style="display:flex; flex-direction:column; gap:4px;"></div>
+            </div>
+
+            <div>
+              <label style="font-size:11px; color:#8b949e; display:block; margin-bottom:4px;">Mật Khẩu Wi-Fi:</label>
+              <input type="password" id="wifiPassInput" placeholder="Nhập mật khẩu Wi-Fi..." style="width:100%; padding:8px 12px; background:#161b22; border:1px solid #30363d; border-radius:6px; color:#fff; font-size:13px;">
+            </div>
+          </div>
+
+          <div style="background:#161b22; padding:8px 12px; border-radius:6px; border:1px solid #30363d; display:flex; justify-content:space-between; align-items:center; font-size:12px;">
+            <span style="color:#8b949e;">Trạng Thái Wi-Fi:</span>
+            <span>IP: <b id="wifiModalStatus" style="color:#4ade80;">OFF</b></span>
+          </div>
+
+          <div style="display:flex; gap:10px; margin-top:4px;">
+            <button class="btn" style="flex:1; background-color:#00b894; color:#fff; font-size:13px; padding:10px; font-weight:bold;" onclick="saveWifiConfig()">💾 Lưu & Kết Nối Wi-Fi</button>
+            <button class="btn btn-danger" style="font-size:13px; padding:10px 14px;" onclick="disconnectWifiCmd()">🔌 Tắt Wi-Fi</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB CONTENT 2: OTA HOST & UPLOAD -->
+      <div id="wifiTabContent_ota" class="ui-tab-content" style="display:none;">
+        <div style="background:#0d1117; padding:14px; border-radius:10px; border:1px solid #21262d; display:flex; flex-direction:column; gap:12px;">
+          <div style="font-size:13px; font-weight:bold; color:#f0f6fc; display:flex; justify-content:space-between; align-items:center;">
+            <span>🌐 Máy Chủ HTTP OTA (.bin):</span>
+            <button class="btn" style="padding:4px 10px; font-size:11px; background-color:#6c5ce7;" onclick="checkOtaVersionCmd()">🔎 Check Bản Mới</button>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <div>
+              <label style="font-size:11px; color:#8b949e; display:block; margin-bottom:4px;">URL Nạp Firmware (.bin):</label>
+              <input type="text" id="otaHostInput" value="https://raw.githubusercontent.com/phamthemy3008/Adru_ECU_AI/main/PROJECT_CURRENT/Firmware/ECU_ManualV1/firmware.bin" placeholder="https://raw.githubusercontent.com/phamthemy3008/Adru_ECU_AI/main/PROJECT_CURRENT/Firmware/ECU_ManualV1/firmware.bin" style="width:100%; padding:8px 12px; background:#161b22; border:1px solid #30363d; border-radius:6px; color:#fff; font-size:12px; font-family:monospace;">
+            </div>
+
+            <!-- Direct .bin Upload Box -->
+            <div style="background:#161b22; padding:10px 12px; border:1px dashed #30363d; border-radius:8px;">
+              <div style="font-size:12px; color:#a855f7; font-weight:bold; margin-bottom:6px;">📤 Tải File .bin Lên Web Server:</div>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <input type="file" id="binFileInput" accept=".bin" style="font-size:12px; color:#8b949e; flex:1;">
+                <button class="btn" style="padding:6px 12px; font-size:12px; background-color:#e84393; color:#fff; font-weight:bold;" onclick="uploadBinFile()">⬆️ Upload .bin</button>
+              </div>
+              <div id="uploadStatusText" style="font-size:11px; color:#8b949e; margin-top:6px;">File sẽ lưu tại <code>/firmware.bin</code> để ESP32 kéo OTA.</div>
+            </div>
+          </div>
+
+          <div style="background:#161b22; padding:8px 12px; border-radius:6px; border:1px solid #30363d; display:flex; justify-content:space-between; align-items:center; font-size:12px;">
+            <span style="color:#8b949e;">Trạng Thái Task OTA:</span>
+            <span>Core 0 Task: <b id="otaModalStatus" style="color:#38bdf8;">OFF</b></span>
+          </div>
+
+          <div style="display:flex; gap:8px; margin-top:4px;">
+            <button class="btn" style="flex:1; background-color:#6c5ce7; color:#fff; font-size:12px; padding:8px;" onclick="checkOtaVersionCmd()">🔎 Check OTA</button>
+            <button class="btn" style="flex:1; background-color:#0984e3; color:#fff; font-size:12px; padding:8px; font-weight:bold;" onclick="toggleOtaCmd(true)">⚡ Bật OTA</button>
+            <button class="btn btn-danger" style="flex:1; font-size:12px; padding:8px;" onclick="toggleOtaCmd(false)">Tắt OTA</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <!-- BIỂU ĐỒ CHARTJS -->
   <div class="card" style="margin-bottom: 20px;">
-    <h3>Đồ thị Thời Gian Thực (EGT & RPM)</h3>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <h3 style="margin:0;">Đồ thị Thời Gian Thực (EGT & RPM)</h3>
+      <button class="btn" style="padding: 4px 10px; font-size: 12px; background-color: #00b894;" onclick="exportTelemetryCSV()">📊 Xuất CSV Telemetry</button>
+    </div>
     <div class="chart-container">
       <canvas id="ecuChart"></canvas>
     </div>
@@ -450,30 +894,61 @@
         <button class="btn" style="background-color: #6c5ce7;" onclick="sendCmd('loadcfg')">📂 Tải Config SD</button>
       </div>
 
-      <!-- FREE RTOS BLACKBOX LOGGING -->
-      <div style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; margin-bottom: 10px; border: 1px solid var(--border);">
-        <div style="font-size: 13px; font-weight: bold; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-          <span>🛸 Hộp Đen Telemetry (10Hz Core 0):</span>
-          <span id="logStatusTag" style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #636e72; color: white;">TẮT (OFF)</span>
-        </div>
-        <div class="btn-grid">
-          <button class="btn btn-danger" style="font-size: 12px; padding: 8px;" onclick="sendCmd('log start')">🔴 Bật Ghi Log</button>
-          <button class="btn" style="font-size: 12px; padding: 8px; background-color: #636e72;" onclick="sendCmd('log stop')">⏹️ Tắt Log</button>
-        </div>
-      </div>
-
       <button class="btn btn-danger" style="width:100%; padding: 12px; font-size:15px; margin-bottom:8px;" onclick="stopEmergencyPurge()">🛑
         DỪNG KHẨN CẤP (Tắt Nhiên Liệu - Giữ Đề Thổi Khí [Space])</button>
       <button class="btn" style="width:100%; padding: 10px; font-size:13px; background-color: #d63031; color: white;" onclick="stopAllShutdown()">⚡
         DỪNG TOÀN BỘ (Dừng Cả Đề - ALL OFF [Shift+Space])</button>
     </div>
+
+    <!-- BẢNG CÀI ĐẶT NGƯỠNG AN TOÀN -->
+    <div class="card">
+      <h3>🛡️ Cài Đặt Ngưỡng An Toàn ECU</h3>
+      <div class="control-group">
+        <div>
+          <label style="font-size: 12px; color: var(--subtext); display: block; margin-bottom: 4px;">🔥 Giới hạn PEGT Dự Báo 3s (°C):</label>
+          <div class="step-control-container">
+            <input type="number" id="cfgPegtMax" class="num-input" style="width: 100%; text-align: left;" value="740" min="400" max="1000" step="5">
+          </div>
+        </div>
+
+        <div>
+          <label style="font-size: 12px; color: var(--subtext); display: block; margin-bottom: 4px;">🌡️ Giới hạn Nhiệt Độ EGT Tối Đa (°C):</label>
+          <div class="step-control-container">
+            <input type="number" id="cfgEgtMax" class="num-input" style="width: 100%; text-align: left;" value="800" min="400" max="1000" step="5">
+          </div>
+        </div>
+
+        <div>
+          <label style="font-size: 12px; color: var(--subtext); display: block; margin-bottom: 4px;">⚡ Tốc độ RPM Tối Đa (Max RPM):</label>
+          <div class="step-control-container">
+            <input type="number" id="cfgMaxRpm" class="num-input" style="width: 100%; text-align: left;" value="160000" min="10000" max="250000" step="1000">
+          </div>
+        </div>
+
+        <div class="btn-grid" style="margin-top: 5px;">
+          <button class="btn btn-success" onclick="saveAndSendSafetySettings()">💾 Lưu & Gửi ECU</button>
+          <button class="btn" style="background-color: #6c5ce7;" onclick="resetDefaultSafetySettings()">🔄 Mặc Định</button>
+        </div>
+        <div style="font-size: 11px; color: #888; margin-top: 2px; text-align: center;">
+          (Được lưu vào localStorage & tự động gửi tới ECU khi kết nối)
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="grid">
     <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
         <h3 style="margin: 0;">Màn hình Serial Log (RX / TX)</h3>
-        <div style="display: flex; gap: 6px;">
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--subtext); background: rgba(255,255,255,0.05); padding: 3px 10px; border-radius: 20px; border: 1px solid #333;" title="Bật/Tắt tự động cuộn xuống cuối khi có log mới">
+            <span>📜 Tự Cuộn:</span>
+            <label class="switch" style="transform: scale(0.8); margin: 0;">
+              <input type="checkbox" id="autoScrollSerialToggle" checked onchange="toggleAutoScroll('serial', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <button class="btn" style="padding: 4px 10px; font-size: 12px; background-color: #6c5ce7;" onclick="analyzeConsoleData()">🧠 Phân Tích Dữ Liệu</button>
           <button class="btn" style="padding: 4px 10px; font-size: 12px; background-color: #333;" onclick="copyConsole('console')">📋 Copy</button>
           <button class="btn btn-danger" style="padding: 4px 10px; font-size: 12px;" onclick="clearConsole('console')">🗑️ Clear</button>
         </div>
@@ -482,9 +957,17 @@
     </div>
 
     <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
         <h3 style="margin: 0;">Màn hình Telemetry Log (WEB_DATA)</h3>
-        <div style="display: flex; gap: 6px;">
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--subtext); background: rgba(255,255,255,0.05); padding: 3px 10px; border-radius: 20px; border: 1px solid #333;" title="Bật/Tắt tự động cuộn xuống cuối khi có log mới">
+            <span>📜 Tự Cuộn:</span>
+            <label class="switch" style="transform: scale(0.8); margin: 0;">
+              <input type="checkbox" id="autoScrollTelemetryToggle" checked onchange="toggleAutoScroll('telemetry', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <button class="btn" style="padding: 4px 10px; font-size: 12px; background-color: #6c5ce7;" onclick="analyzeConsoleData()">🧠 Phân Tích Dữ Liệu</button>
           <button class="btn" style="padding: 4px 10px; font-size: 12px; background-color: #333;" onclick="copyConsole('webStatusConsole')">📋 Copy</button>
           <button class="btn btn-danger" style="padding: 4px 10px; font-size: 12px;" onclick="clearConsole('webStatusConsole')">🗑️ Clear</button>
         </div>
@@ -494,6 +977,36 @@
   </div>
 
   <script>
+    /* RX SAMPLING RATE CALCULATION (Hz) */
+    let rxPacketCount = 0;
+    let lastHzCalcTime = performance.now();
+    let currentRxHz = 0.0;
+
+    function recordRxPacket() {
+      rxPacketCount++;
+      const now = performance.now();
+      const elapsed = (now - lastHzCalcTime) / 1000;
+      if (elapsed >= 1.0) {
+        currentRxHz = rxPacketCount / elapsed;
+        rxPacketCount = 0;
+        lastHzCalcTime = now;
+        const hzEl = document.getElementById('rxHzVal');
+        if (hzEl) {
+          hzEl.innerText = currentRxHz.toFixed(1);
+        }
+      }
+    }
+
+    function resetRxSamplingRate() {
+      rxPacketCount = 0;
+      lastHzCalcTime = performance.now();
+      currentRxHz = 0.0;
+      const hzEl = document.getElementById('rxHzVal');
+      if (hzEl) {
+        hzEl.innerText = "0.0";
+      }
+    }
+
     let port, writer, reader, readableStreamClosed;
     let ignState = false, v1State = false, v2State = false;
     let ecuChart;
@@ -501,7 +1014,130 @@
     let watchdogTimer = null;
     const MAX_DATA_POINTS = 30;
 
+    let isSimMode = false;
+    let simTimer = null;
+    let simState = {
+      rpm: 0,
+      egt: 28.5,
+      starterUs: 1000,
+      pumpUs: 1000,
+      ign: false,
+      v1: false,
+      v2: false,
+      sramp: true,
+      pramp: true,
+      sdOk: true
+    };
+
+    document.getElementById('simBtn').addEventListener('click', () => {
+      if (!isSimMode) {
+        if (port) disconnectSerial();
+        isSimMode = true;
+        document.getElementById('simBtn').innerText = "⏹️ Dừng Giả Lập";
+        document.getElementById('simBtn').style.backgroundColor = "#e17055";
+        document.getElementById('connectBtn').innerText = "🎮 Mode Giả Lập Đang Chạy";
+        document.getElementById('connectBtn').style.backgroundColor = "#00b894";
+        document.getElementById('ecuVersion').innerText = "ManualV1_SIM";
+        logConsole("System -> Đã bật Mode Giả Lập (ECU Jet Engine Simulator)");
+        showToast("Đã kích hoạt Mode Giả Lập ECU Jet Engine!", "info", 4000);
+
+        startSimulation();
+      } else {
+        stopSimulation();
+      }
+    });
+
+    function stopSimulation() {
+      isSimMode = false;
+      if (simTimer) { clearInterval(simTimer); simTimer = null; }
+      resetRxSamplingRate();
+      document.getElementById('simBtn').innerText = "🎮 Mode Giả Lập (Demo)";
+      document.getElementById('simBtn').style.backgroundColor = "#6c5ce7";
+      document.getElementById('connectBtn').innerText = "🔌 Kết Nối USB COM";
+      document.getElementById('connectBtn').style.backgroundColor = "var(--accent)";
+      document.getElementById('ecuVersion').innerText = "Unknown";
+      logConsole("System -> Đã dừng Mode Giả Lập");
+    }
+
+    function startSimulation() {
+      if (simTimer) clearInterval(simTimer);
+      simTimer = setInterval(() => {
+        if (!isSimMode) return;
+        
+        let targetRpm = 0;
+        if (simState.starterUs > 1000) {
+          targetRpm += (simState.starterUs - 1000) * 25;
+        }
+        
+        let fuelFlow = 0;
+        if ((simState.v1 || simState.v2) && simState.pumpUs > 1000) {
+          fuelFlow = (simState.pumpUs - 1000) / 1000.0;
+        }
+        
+        if (simState.ign && fuelFlow > 0.05 && simState.rpm > 3000) {
+          targetRpm += fuelFlow * 75000;
+        } else if (fuelFlow > 0.1 && simState.rpm > 8000) {
+          targetRpm += fuelFlow * 85000;
+        }
+
+        simState.rpm += (targetRpm - simState.rpm) * 0.15;
+        if (simState.rpm < 0) simState.rpm = 0;
+
+        let targetEgt = 28.5;
+        if (simState.ign && fuelFlow > 0.05 && simState.rpm > 2000) {
+          targetEgt = 200.0 + fuelFlow * 650.0;
+        } else if (fuelFlow > 0.1 && simState.rpm > 5000) {
+          targetEgt = 300.0 + fuelFlow * 550.0;
+        }
+
+        if (simState.starterUs > 1200 && fuelFlow === 0) {
+          targetEgt = Math.max(28.5, simState.egt - 15.0);
+        }
+
+        let egtDiff = (targetEgt - simState.egt);
+        simState.egt += egtDiff * 0.08;
+
+        let dEgt = (egtDiff * 0.08 * 4.0).toFixed(1);
+        let pEgt = (simState.egt + parseFloat(dEgt) * 3.0).toFixed(1);
+
+        let noise = (Math.random() * 80 - 40).toFixed(0);
+        let rawRpm = Math.max(0, Math.round(simState.rpm + (Math.random() * 120 - 60)));
+        let filteredRpm = Math.round(simState.rpm);
+
+        let line = `WEB_DATA|EGT=${simState.egt.toFixed(1)}C|dEGT=${dEgt}|PEGT=${pEgt}|RPM=${filteredRpm}|FRPM=${filteredRpm}|RRPM=${rawRpm}|RNOISE=${noise}|SIG=OK|SD=OK|IGN=${simState.ign?1:0}|V1=${simState.v1?1:0}|V2=${simState.v2?1:0}|START=${simState.starterUs}us|PUMP=${simState.pumpUs}us|VER=ManualV1_SIM|PRAMP=${simState.pramp?1:0}|SRAMP=${simState.sramp?1:0}|ALEARN=15`;
+        
+        recordRxPacket();
+        parseEcuStatus(line);
+        logWebStatusConsole("RX <- " + line);
+
+        let activePegtMax = simState.pegtMax || loadSafetySettingsLocal().pegtMax;
+        let activeEgtMax = simState.egtMax || loadSafetySettingsLocal().egtMax;
+        let activeMaxRpm = simState.maxRpm || loadSafetySettingsLocal().maxRpm;
+
+        if ((parseFloat(pEgt) > activePegtMax || simState.egt > activeEgtMax) && fuelFlow > 0) {
+          let errLine = `ERR:E02 - PEGT/EGT (${pEgt}°C) > ${activePegtMax}°C Overheat warning!`;
+          logConsole("RX <- " + errLine);
+          showToast(`CẢNH BÁO QUÁ NHIỆT: PEGT/EGT (${pEgt}°C) vượt ngưỡng an toàn ${activePegtMax}°C! Tự động ngắt Bơm nhiên liệu.`, "danger", 6000);
+          simState.pumpUs = 1000;
+          document.getElementById('pumpSlider').value = 1000;
+          document.getElementById('pumpUsVal').innerText = "1000 µs";
+        }
+
+        if (filteredRpm > activeMaxRpm && fuelFlow > 0) {
+          let errLine = `ERR:E06 - RPM (${filteredRpm}) > Max RPM ${activeMaxRpm} Overrev warning!`;
+          logConsole("RX <- " + errLine);
+          showToast(`CẢNH BÁO QUÁ VÒNG TUA: RPM (${filteredRpm}) vượt ngưỡng tối đa ${activeMaxRpm} RPM! Tự động ngắt Bơm nhiên liệu.`, "danger", 6000);
+          simState.pumpUs = 1000;
+          document.getElementById('pumpSlider').value = 1000;
+          document.getElementById('pumpUsVal').innerText = "1000 µs";
+        }
+
+      }, 250);
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
+      initAutoScrollToggles();
+      populateSafetySettingsUI();
       const ctx = document.getElementById('ecuChart').getContext('2d');
       ecuChart = new Chart(ctx, {
         type: 'line',
@@ -562,12 +1198,16 @@
           document.getElementById('disconnectBtn').style.display = "inline-block";
           writer = port.writable.getWriter();
           readSerialData();
-          setTimeout(() => { sendCmd('loadcfg'); }, 300);
+          setTimeout(() => { 
+            sendCmd('loadcfg'); 
+            sendSafetySettingsToEcu();
+          }, 400);
 
           lastRxTime = Date.now();
           if (watchdogTimer) clearInterval(watchdogTimer);
           watchdogTimer = setInterval(() => {
             if (Date.now() - lastRxTime > 2000) {
+              resetRxSamplingRate();
               document.getElementById('connectBtn').innerText = "❌ Mất Kết Nối!";
               document.getElementById('connectBtn').style.backgroundColor = "#ff2e63";
               document.getElementById('connectBtn').style.color = "#fff";
@@ -593,6 +1233,7 @@
 
     async function disconnectSerial() {
       if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
+      resetRxSamplingRate();
       document.getElementById('disconnectOverlay').style.display = "none";
 
       if (reader) {
@@ -634,12 +1275,47 @@
     }
 
     async function sendCmd(cmd) {
-      if (!writer) { alert("Chưa kết nối COM!"); return; }
-      const textEncoder = new TextEncoder();
       const cleanCmd = cmd.trim();
+      logConsole("TX -> " + cmd);
+
+      if (isSimMode) {
+        if (cleanCmd.startsWith('starter ')) {
+          let p = cleanCmd.replace('starter ', '');
+          if (p === 'off') simState.starterUs = 1000;
+          else simState.starterUs = parseInt(p) || 1000;
+        } else if (cleanCmd.startsWith('pump ')) {
+          let p = cleanCmd.replace('pump ', '');
+          if (p === 'off') simState.pumpUs = 1000;
+          else simState.pumpUs = parseInt(p) || 1000;
+        } else if (cleanCmd === 'ign on') simState.ign = true;
+        else if (cleanCmd === 'ign off') simState.ign = false;
+        else if (cleanCmd === 'valve1 on') simState.v1 = true;
+        else if (cleanCmd === 'valve1 off') simState.v1 = false;
+        else if (cleanCmd === 'valve2 on') simState.v2 = true;
+        else if (cleanCmd === 'valve2 off') simState.v2 = false;
+        else if (cleanCmd === 'set starterramp on') simState.sramp = true;
+        else if (cleanCmd === 'set starterramp off') simState.sramp = false;
+        else if (cleanCmd === 'set pumpramp on') simState.pramp = true;
+        else if (cleanCmd === 'set pumpramp off') simState.pramp = false;
+        else if (cleanCmd === 'estop') {
+          simState.pumpUs = 1000; simState.ign = false; simState.v1 = false; simState.v2 = false;
+          if (simState.egt > 80) simState.starterUs = 1300;
+        } else if (cleanCmd === 'alloff') {
+          simState.starterUs = 1000; simState.pumpUs = 1000; simState.ign = false; simState.v1 = false; simState.v2 = false;
+        } else if (cleanCmd === 'savecfg') {
+          logConsole("RX <- OK: Configuration saved to SD Card (Simulation)");
+          showToast("Đã lưu cấu hình vào Thẻ SD (Giả Lập)", "info", 3000);
+        } else if (cleanCmd === 'loadcfg') {
+          logConsole("CONFIG_DATA|START_SET=1200|PUMP_SET=1200|START_STEP=10|PUMP_STEP=10");
+          parseEcuConfig("CONFIG_DATA|START_SET=1200|PUMP_SET=1200|START_STEP=10|PUMP_STEP=10");
+        }
+        return;
+      }
+
+      if (!writer) { alert("Chưa kết nối COM! Bạn có thể nhấn nút '🎮 Mode Giả Lập (Demo)' để trải nghiệm ngay."); return; }
+      const textEncoder = new TextEncoder();
       const checksumHex = crc8(cleanCmd).toString(16).toUpperCase().padStart(2, '0');
       await writer.write(textEncoder.encode(cleanCmd + '#' + checksumHex + '\n'));
-      logConsole("TX -> " + cmd);
     }
 
     let lastStarterSendTime = 0;
@@ -879,6 +1555,7 @@
           for (let line of lines) {
             line = line.trim();
             if (line.length > 0) {
+              recordRxPacket();
               if (line.startsWith("WEB_DATA|")) {
                 parseEcuStatus(line);
                 logWebStatusConsole("RX <- " + line);
@@ -887,24 +1564,37 @@
               if (line.startsWith("CONFIG_DATA|")) {
                 parseEcuConfig(line);
               }
+              if (line.startsWith("WIFISCAN:")) {
+                parseWifiScanResult(line);
+              }
               logConsole("RX <- " + line);
 
               // TRA BẢNG MÃ LỖI / SỰ KIỆN TỰ ĐỘNG ĐỂ HIỂN THỊ BANNER TIẾNG VIỆT
               const CODE_DICT = {
                 'ERR:E01': { msg: 'CẢNH BÁO AN TOÀN: Cả 2 van nhiên liệu (V1 & V2) đều đang ĐÓNG! Vui lòng mở ít nhất 1 van trước khi bật Bơm.', type: 'warning' },
-                'ERR:E02': { msg: 'CẢNH BÁO QUÁ NHIỆT: Dự báo PEGT 3s vượt 740°C! Đã tự động NGẮT BƠM & THỔI LÀM MÁT BUỒNG ĐỐT.', type: 'danger' },
+                'ERR:E02': { msg: 'CẢNH BÁO QUÁ NHIỆT: Nhiệt độ EGT/PEGT vượt ngưỡng an toàn! Đã tự động NGẮT BƠM & THỔI LÀM MÁT BUỒNG ĐỐT.', type: 'danger' },
+                'ERR:E06': { msg: 'CẢNH BÁO QUÁ VÒNG TUA: Vòng tua (RPM) vượt ngưỡng tối đa! Đã tự động NGẮT BƠM NHIÊN LIỆU.', type: 'danger' },
                 'EV:A01':  { msg: 'TỰ ĐỘNG KHÓA: Đã Tắt Bơm -> Tự động đóng cả 2 Van nhiên liệu (V1 & V2).', type: 'info' },
                 'EV:A02':  { msg: 'TỰ ĐỘNG KHÓA: Đã đóng cả 2 Van -> Tự động ngắt Bơm nhiên liệu.', type: 'info' },
                 'EV:A03':  { msg: 'DỪNG KHẨN CẤP: Ngắt Bơm & Lửa/Van -> Tự động bật Đề 1300µs thổi khí làm mát.', type: 'danger' },
                 'EV:A04':  { msg: 'DỪNG KHẨN CẤP: Đã ngắt Bơm & Lửa/Van (Máy đã nguội <= 80°C).', type: 'info' },
-                'EV:A05':  { msg: 'DỪNG TOÀN BỘ: Đã ngắt 100% tất cả thiết bị (Bơm, Đề, Lửa, Van).', type: 'danger' }
+                'EV:A05':  { msg: 'DỪNG TOÀN BỘ: Đã ngắt 100% tất cả thiết bị (Bơm, Đề, Lửa, Van).', type: 'danger' },
+                'EV:OTA_NEW_VER':  { msg: '🚀 PHÁT HIỆN FIRMWARE MỚI TỪ SERVER! Vui lòng xác nhận cập nhật trong 30 giây...', type: 'warning' },
+                'EV:OTA_NO_NEW_VER': { msg: 'ℹ️ Đã kiểm tra: Không tìm thấy bản Firmware mới hoặc Server không phản hồi.', type: 'info' },
+                'EV:OTA_CANCELED': { msg: '🛑 CẬP NHẬT OTA ĐÃ HỦY (Do quá 30s hoặc người dùng hủy).', type: 'info' }
               };
 
               for (let codeKey in CODE_DICT) {
                 if (line.includes(codeKey)) {
                   showToast(CODE_DICT[codeKey].msg, CODE_DICT[codeKey].type, 6000);
+                  if (CODE_DICT[codeKey].type === 'danger' || CODE_DICT[codeKey].type === 'warning') {
+                    playBeepWarning();
+                  }
                   break;
                 }
+              }
+              if (line.includes('ERR:')) {
+                playBeepWarning();
               }
             }
           }
@@ -962,19 +1652,6 @@
               sdEl.style.color = (sdVal === "OK") ? "#00ff87" : "#ff7675";
             }
           }
-          if (part.startsWith("LOG=")) {
-            let logVal = part.replace("LOG=", "");
-            const logEl = document.getElementById('logStatusTag');
-            if (logEl) {
-              if (logVal === "1") {
-                logEl.innerText = "REC 🔴 10Hz (Core 0)";
-                logEl.style.background = "#e17055";
-              } else {
-                logEl.innerText = "TẮT (OFF)";
-                logEl.style.background = "#636e72";
-              }
-            }
-          }
           if (part.startsWith("IGN=")) {
             if (Date.now() - lastToggleTime > 1000) {
               ignState = part.endsWith("1");
@@ -1021,16 +1698,68 @@
           if (part.startsWith("ALEARN=")) {
             document.getElementById('alearnVal').innerText = part.replace("ALEARN=", "") + " bins";
           }
+          if (part.startsWith("OTA=")) {
+            let otaVal = part.replace("OTA=", "");
+            const otaEl = document.getElementById('otaVal');
+            const otaModEl = document.getElementById('otaModalStatus');
+            const otaPendingModal = document.getElementById('otaPendingModal');
+
+            if (otaVal.startsWith("PENDING_")) {
+              let sec = otaVal.replace("PENDING_", "").replace("S", "");
+              if (otaEl) { otaEl.innerText = `PENDING (${sec}s)`; otaEl.style.color = "#ff7675"; }
+              if (otaModEl) otaModEl.innerText = `PENDING (${sec}s)`;
+              if (otaPendingModal) {
+                otaPendingModal.style.display = 'flex';
+                const countEl = document.getElementById('otaCountdownVal');
+                if (countEl) countEl.innerText = sec;
+              }
+            } else {
+              if (otaPendingModal) otaPendingModal.style.display = 'none';
+              if (otaEl) {
+                otaEl.innerText = otaVal;
+                if (otaVal === "READY") otaEl.style.color = "#00ff87";
+                else if (otaVal === "BUSY") otaEl.style.color = "#ffbe76";
+                else otaEl.style.color = "#74b9ff";
+              }
+              if (otaModEl) otaModEl.innerText = otaVal;
+            }
+          }
+          if (part.startsWith("WIFI=")) {
+            let wifiVal = part.replace("WIFI=", "");
+            const wifiEl = document.getElementById('wifiVal');
+            const wifiModEl = document.getElementById('wifiModalStatus');
+            if (wifiEl) {
+              wifiEl.innerText = wifiVal;
+              if (wifiVal !== "OFF" && wifiVal !== "CONNECTING") wifiEl.style.color = "#00ff87";
+              else if (wifiVal === "CONNECTING") wifiEl.style.color = "#ffbe76";
+              else wifiEl.style.color = "#fdcb6e";
+            }
+            if (wifiModEl) wifiModEl.innerText = wifiVal;
+          }
         });
 
         if (currentEgt !== null && currentRpm !== null && !isNaN(currentEgt) && !isNaN(currentRpm)) {
           updateChart(currentEgt, currentRpm);
+          
+          let pegtVal = parseFloat(document.getElementById('pegtVal')?.innerText) || currentEgt;
+          let starterUs = parseInt(document.getElementById('starterUsVal')?.innerText) || 1000;
+          let pumpUs = parseInt(document.getElementById('pumpUsVal')?.innerText) || 1000;
+          
+          recordedTelemetry.push({
+            time: new Date().toLocaleTimeString(),
+            egt: currentEgt,
+            pegt: pegtVal,
+            rpm: currentRpm,
+            starter: starterUs,
+            pump: pumpUs
+          });
+          if (recordedTelemetry.length > 500) recordedTelemetry.shift();
         }
       }
     }
 
     function parseEcuConfig(line) {
-      if (line.includes("START_SET=") || line.includes("PUMP_SET=")) {
+      if (line.includes("START_SET=") || line.includes("PUMP_SET=") || line.includes("PEGT_MAX=")) {
         const parts = line.split('|').map(s => s.trim());
         parts.forEach(part => {
           if (part.startsWith("START_SET=")) {
@@ -1049,8 +1778,180 @@
             let val = parseInt(part.replace("PUMP_STEP=", ""));
             if (!isNaN(val)) document.getElementById('pumpStepVal').value = val;
           }
+          if (part.startsWith("PEGT_MAX=")) {
+            let val = parseFloat(part.replace("PEGT_MAX=", ""));
+            if (!isNaN(val)) document.getElementById('cfgPegtMax').value = val;
+          }
+          if (part.startsWith("EGT_MAX=")) {
+            let val = parseFloat(part.replace("EGT_MAX=", ""));
+            if (!isNaN(val)) document.getElementById('cfgEgtMax').value = val;
+          }
+          if (part.startsWith("MAX_RPM=")) {
+            let val = parseFloat(part.replace("MAX_RPM=", ""));
+            if (!isNaN(val)) document.getElementById('cfgMaxRpm').value = val;
+          }
+          if (part.startsWith("WIFI_SSID=")) {
+            let val = part.replace("WIFI_SSID=", "");
+            const wifiInput = document.getElementById('wifiSsidInput');
+            if (wifiInput && val) wifiInput.value = val;
+          }
+          if (part.startsWith("OTA_URL=")) {
+            let val = part.replace("OTA_URL=", "");
+            const otaInput = document.getElementById('otaHostInput');
+            if (otaInput && val) otaInput.value = val;
+          }
         });
       }
+    }
+
+    function scanWifiCmd() {
+      const list = document.getElementById('wifiScanList');
+      const container = document.getElementById('wifiScanContainer');
+      if (container && list) {
+        container.style.display = 'block';
+        list.innerHTML = '<div style="font-size:12px; color:#fdcb6e; padding:4px;">⏳ Đang gửi lệnh quét mạng Wi-Fi xung quanh...</div>';
+      }
+      sendCmd('wifi scan');
+    }
+
+    function parseWifiScanResult(line) {
+      const data = line.substring("WIFISCAN:".length).trim();
+      const list = document.getElementById('wifiScanList');
+      const container = document.getElementById('wifiScanContainer');
+      if (!list || !container) return;
+      container.style.display = 'block';
+      list.innerHTML = '';
+      if (data === "NONE" || !data) {
+        list.innerHTML = '<div style="font-size:12px; color:#ff7675; padding:4px;">❌ Không tìm thấy mạng Wi-Fi nào.</div>';
+        return;
+      }
+      const items = data.split('|');
+      items.forEach(item => {
+        const parts = item.split(',');
+        const ssid = parts[0] ? parts[0].trim() : '';
+        const rssi = parts[1] ? parts[1].trim() : '';
+        const sec = parts[2] ? parts[2].trim() : '';
+        if (ssid) {
+          const div = document.createElement('div');
+          div.style.cssText = "padding:6px 10px; background:#222; border-radius:4px; cursor:pointer; font-size:12px; display:flex; justify-content:space-between; align-items:center; border:1px solid #333; transition:0.2s;";
+          div.onmouseover = () => div.style.background = '#333';
+          div.onmouseout = () => div.style.background = '#222';
+          div.onclick = () => {
+            document.getElementById('wifiSsidInput').value = ssid;
+            document.getElementById('wifiPassInput').focus();
+            showToast(`Đã chọn Wi-Fi: ${ssid}`, 'info', 3000);
+          };
+          div.innerHTML = `<span>📶 <b style="color:#fff;">${ssid}</b> <span style="font-size:10px; color:#aaa;">[${sec}]</span></span> <span style="color:#00ff87; font-weight:bold;">${rssi} dBm</span>`;
+          list.appendChild(div);
+        }
+      });
+    }
+
+    const sendSerialCmd = sendCmd;
+
+    function openWifiModal() {
+      const modal = document.getElementById('wifiConfigModal');
+      if (modal) modal.style.display = 'flex';
+      switchWifiTab('wifi');
+      sendCmd('showcfg');
+    }
+    function closeWifiModal() {
+      const modal = document.getElementById('wifiConfigModal');
+      if (modal) modal.style.display = 'none';
+    }
+    function saveWifiConfig() {
+      const ssidInput = document.getElementById('wifiSsidInput');
+      const passInput = document.getElementById('wifiPassInput');
+      const hostInput = document.getElementById('otaHostInput');
+      const ssid = ssidInput ? ssidInput.value.trim() : '';
+      const pass = passInput ? passInput.value.trim() : '';
+      const host = hostInput ? hostInput.value.trim() : '';
+      if (!ssid) {
+        alert("Vui lòng nhập tên Wi-Fi (SSID).");
+        return;
+      }
+      sendCmd(`set wifi ${ssid} ${pass}`);
+      if (host) {
+        sendCmd(`set ota host ${host}`);
+      }
+      alert(`Đã gửi cấu hình Wi-Fi & URL Server Host OTA tới ECU!`);
+    }
+    function checkOtaVersionCmd() {
+      const hostInput = document.getElementById('otaHostInput');
+      const host = hostInput ? hostInput.value.trim() : '';
+      if (host) {
+        sendCmd(`set ota host ${host}`);
+      }
+      sendCmd('set ota check');
+      showToast("🔎 Đã gửi yêu cầu ECU kiểm tra bản firmware mới từ Remote Server...", "info", 4000);
+    }
+    async function uploadBinFile() {
+      const fileInput = document.getElementById('binFileInput');
+      const statusText = document.getElementById('uploadStatusText');
+      if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        alert('Vui lòng chọn một file .bin trước khi bấm Upload!');
+        return;
+      }
+      const file = fileInput.files[0];
+      if (!file.name.toLowerCase().endsWith('.bin')) {
+        alert('Vui lòng chọn đúng file có định dạng .bin!');
+        return;
+      }
+      if (statusText) statusText.innerHTML = `⏳ Đang tải file <b>${file.name}</b> (${Math.round(file.size/1024)} KB) lên server...`;
+      try {
+        const response = await fetch('/api/firmware/upload-bin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: file
+        });
+        const result = await response.json();
+        if (response.ok && result.success) {
+          if (statusText) statusText.innerHTML = `✅ <b>Đã tải thành công!</b> File sẵn sàng tại URL: <code>${window.location.origin}/firmware.bin</code>`;
+          showToast(`✅ Đã Upload thành công file ${file.name} lên Server!`, "success", 5000);
+          
+          // Tự động điền URL vào ô Host OTA
+          const hostInput = document.getElementById('otaHostInput');
+          if (hostInput) {
+            const autoUrl = `${window.location.origin}/firmware.bin`;
+            hostInput.value = autoUrl;
+            sendCmd(`set ota host ${autoUrl}`);
+          }
+        } else {
+          throw new Error(result.error || 'Lỗi chưa xác định khi upload.');
+        }
+      } catch (err) {
+        console.error('Upload Error:', err);
+        if (statusText) statusText.innerHTML = `❌ <span style="color:#ff7675;">Lỗi upload: ${err.message}</span>`;
+        alert(`Lỗi upload file: ${err.message}`);
+      }
+    }
+    function confirmOtaCmd() {
+      sendCmd('set ota confirm');
+      const modal = document.getElementById('otaPendingModal');
+      if (modal) modal.style.display = 'none';
+      showToast("⚡ Đã gửi lệnh XÁC NHẬN Cập nhật Firmware OTA!", "success", 4000);
+    }
+    function cancelOtaCmd() {
+      sendCmd('set ota cancel');
+      const modal = document.getElementById('otaPendingModal');
+      if (modal) modal.style.display = 'none';
+      showToast("❌ Đã hủy cập nhật Firmware OTA.", "info", 3000);
+    }
+    function toggleOtaCmd(enable) {
+      if (enable) {
+        const hostInput = document.getElementById('otaHostInput');
+        const host = hostInput ? hostInput.value.trim() : '';
+        if (host) sendCmd(`set ota host ${host}`);
+        sendCmd('set ota on');
+        alert("Đã gửi lệnh Bật Remote HTTP OTA.");
+      } else {
+        sendCmd('set ota off');
+        alert("Đã gửi lệnh Tắt Remote HTTP OTA.");
+      }
+    }
+    function disconnectWifiCmd() {
+      sendCmd('set wifi off');
+      alert("Đã ngắt kết nối Wi-Fi.");
     }
 
     function updateChart(egt, rpm) {
@@ -1101,11 +2002,36 @@
       }
     }
 
+    /* AUTO-SCROLL LOG TOGGLE LOGIC */
+    let autoScrollSerial = localStorage.getItem('autoScrollSerial') !== 'false';
+    let autoScrollTelemetry = localStorage.getItem('autoScrollTelemetry') !== 'false';
+
+    function initAutoScrollToggles() {
+      const sToggle = document.getElementById('autoScrollSerialToggle');
+      const tToggle = document.getElementById('autoScrollTelemetryToggle');
+      if (sToggle) sToggle.checked = autoScrollSerial;
+      if (tToggle) tToggle.checked = autoScrollTelemetry;
+    }
+
+    function toggleAutoScroll(type, enabled) {
+      if (type === 'serial') {
+        autoScrollSerial = enabled;
+        localStorage.setItem('autoScrollSerial', enabled);
+        showToast(enabled ? "📜 Bật tự động cuộn Serial Log" : "⏸️ Tắt tự động cuộn Serial Log", "info", 1500);
+      } else if (type === 'telemetry') {
+        autoScrollTelemetry = enabled;
+        localStorage.setItem('autoScrollTelemetry', enabled);
+        showToast(enabled ? "📜 Bật tự động cuộn Telemetry Log" : "⏸️ Tắt tự động cuộn Telemetry Log", "info", 1500);
+      }
+    }
+
     function logConsole(msg) {
       const c = document.getElementById('console');
       if (c) {
         c.innerHTML += msg + "<br>";
-        c.scrollTop = c.scrollHeight;
+        if (autoScrollSerial) {
+          c.scrollTop = c.scrollHeight;
+        }
       }
     }
 
@@ -1113,9 +2039,621 @@
       const c = document.getElementById('webStatusConsole');
       if (c) {
         c.innerHTML += msg + "<br>";
-        c.scrollTop = c.scrollHeight;
+        if (autoScrollTelemetry) {
+          c.scrollTop = c.scrollHeight;
+        }
       }
     }
+
+    /* AUDIO ALERT SYNTHESIZER & CSV EXPORT */
+    let audioAlertEnabled = true;
+    let audioCtx = null;
+    let recordedTelemetry = [];
+
+    function toggleAudioAlert() {
+      audioAlertEnabled = !audioAlertEnabled;
+      const btn = document.getElementById('audioAlertBtn');
+      if (btn) {
+        btn.innerText = audioAlertEnabled ? "🔔 Âm Cảnh Báo: Bật" : "🔕 Âm Cảnh Báo: Tắt";
+        btn.style.backgroundColor = audioAlertEnabled ? "#2d3436" : "#d63031";
+      }
+      showToast(audioAlertEnabled ? "Đã bật cảnh báo âm thanh" : "Đã tắt cảnh báo âm thanh", "info", 2000);
+    }
+
+    function playBeepWarning() {
+      if (!audioAlertEnabled) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.3);
+      } catch (e) {
+        console.warn("Audio Context error:", e);
+      }
+    }
+
+    function exportTelemetryCSV() {
+      if (recordedTelemetry.length === 0) {
+        // Collect current chart data if no recorded telemetry buffer
+        if (ecuChart && ecuChart.data.labels.length > 0) {
+          const labels = ecuChart.data.labels;
+          const egtData = ecuChart.data.datasets[0].data;
+          const rpmData = ecuChart.data.datasets[1].data;
+          let csvContent = "Time,EGT_C,RPM\n";
+          for (let i = 0; i < labels.length; i++) {
+            csvContent += `"${labels[i]}",${egtData[i] || 0},${rpmData[i] || 0}\n`;
+          }
+          downloadFile(csvContent, `ECU_Telemetry_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'_')}.csv`, 'text/csv');
+          return;
+        }
+        showToast("Chưa có dữ liệu telemetry để xuất!", "info", 3000);
+        return;
+      }
+
+      let csvContent = "Timestamp,EGT_C,PEGT_3s_C,RPM,Starter_us,Pump_us\n";
+      recordedTelemetry.forEach(row => {
+        csvContent += `"${row.time}",${row.egt},${row.pegt},${row.rpm},${row.starter},${row.pump}\n`;
+      });
+      downloadFile(csvContent, `ECU_Telemetry_Full_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'_')}.csv`, 'text/csv');
+      showToast("Đã xuất tập tin CSV Telemetry!", "success", 3000);
+    }
+
+    function downloadFile(content, fileName, contentType) {
+      const a = document.createElement("a");
+      const file = new Blob([content], { type: contentType });
+      a.href = URL.createObjectURL(file);
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    /* AI TELEMETRY LOG ANALYSIS FUNCTIONS */
+    let currentAiDeepMode = false;
+
+    async function analyzeConsoleData(deep = false) {
+      currentAiDeepMode = deep;
+      const modal = document.getElementById('aiAnalysisModal');
+      const loading = document.getElementById('aiLoading');
+      const result = document.getElementById('aiResult');
+      const badge = document.getElementById('aiModelBadge');
+      const flashBtn = document.getElementById('aiFlashBtn');
+      const thinkingBtn = document.getElementById('aiThinkingBtn');
+      const loadingText = document.getElementById('aiLoadingText');
+      
+      modal.style.display = 'flex';
+      loading.style.display = 'block';
+      result.style.display = 'none';
+
+      if (deep) {
+        badge.innerText = "Gemini 3.1 Pro (Thinking HIGH)";
+        badge.style.borderColor = "#6c5ce7";
+        badge.style.color = "#a29bfe";
+        flashBtn.style.background = "#333";
+        thinkingBtn.style.background = "#6c5ce7";
+        loadingText.innerText = "Đang chẩn đoán chuyên sâu lỗi ECU & telemetry bằng Gemini 3.1 Pro High Thinking Mode...";
+      } else {
+        badge.innerText = "Gemini 3.6 Flash";
+        badge.style.borderColor = "rgba(0,173,181,0.3)";
+        badge.style.color = "#00adb5";
+        flashBtn.style.background = "#00adb5";
+        thinkingBtn.style.background = "#333";
+        loadingText.innerText = "Đang trích xuất mã lỗi ERR & phân tích telemetry bằng Gemini AI...";
+      }
+
+      const consoleText = document.getElementById('console').innerText || "";
+      const webStatusText = document.getElementById('webStatusConsole').innerText || "";
+
+      const allLogs = (consoleText + "\n" + webStatusText).trim();
+
+      // Filter lines with errors / warnings
+      const lines = allLogs.split('\n');
+      const errLines = lines.filter(line => 
+        line.includes('ERR') || line.includes('E01') || line.includes('E02') || 
+        line.includes('E03') || line.includes('E04') || line.includes('E05') || 
+        line.includes('EV:') || line.includes('QUÁ NHIỆT') || line.includes('CẢNH BÁO') || 
+        line.includes('Overheat') || line.includes('FAIL')
+      );
+
+      // Capture telemetry readings
+      const egt = document.getElementById('egtVal')?.innerText || "N/A";
+      const pegt = document.getElementById('pegtVal')?.innerText || "N/A";
+      const rpm = document.getElementById('rpmVal')?.innerText || "N/A";
+      const starter = document.getElementById('starterUsVal')?.innerText || "N/A";
+      const pump = document.getElementById('pumpUsVal')?.innerText || "N/A";
+      const sd = document.getElementById('sdStatus')?.innerText || "N/A";
+      
+      const telemetryContext = `EGT Hiện tại: ${egt}, PEGT (Dự đoán 3s): ${pegt}°C, RPM: ${rpm}, Motor Đề: ${starter}, Bơm Nhiên Liệu: ${pump}, Trạng thái SD: ${sd}`;
+
+      try {
+        const res = await fetch('/api/analyze-logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            logs: lines.slice(-40).join('\n'),
+            errors: errLines,
+            telemetryContext: telemetryContext,
+            deepAnalysis: deep
+          })
+        });
+
+        const data = await res.json();
+        loading.style.display = 'none';
+        result.style.display = 'block';
+
+        if (data.analysis) {
+          result.innerHTML = `<div class="ai-content">${renderSimpleMarkdown(data.analysis)}</div>`;
+        } else {
+          result.innerHTML = `<div style="color:#ff7675; padding:15px; background:rgba(255,118,117,0.1); border-radius:8px; border:1px solid #ff7675;">❌ Lỗi: ${data.error || 'Không nhận được kết quả từ dịch vụ AI.'}</div>`;
+        }
+      } catch (err) {
+        loading.style.display = 'none';
+        result.style.display = 'block';
+        result.innerHTML = `<div style="color:#ff7675; padding:15px; background:rgba(255,118,117,0.1); border-radius:8px; border:1px solid #ff7675;">❌ Lỗi kết nối máy chủ API: ${err.message}</div>`;
+      }
+    }
+
+    function closeAiModal() {
+      document.getElementById('aiAnalysisModal').style.display = 'none';
+    }
+
+    function copyAiResult() {
+      const content = document.getElementById('aiResult').innerText;
+      if (!content) return;
+      navigator.clipboard.writeText(content).then(() => {
+        showToast("Đã sao chép kết quả phân tích AI vào bộ nhớ tạm!", "info", 3000);
+      }).catch(() => {
+        alert("Đã sao chép kết quả phân tích!");
+      });
+    }
+
+    function renderSimpleMarkdown(text) {
+      if (!text) return "";
+      let html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/^\> (.*$)/gim, '<blockquote>$1</blockquote>')
+        .replace(/^\- (.*$)/gim, '<li>$1</li>')
+        .replace(/^\* (.*$)/gim, '<li>$1</li>')
+        .replace(/\n\n/g, '<br><br>');
+        
+      return html;
+    }
+
+    /* LOCALSTORAGE & SAFETY THRESHOLDS MANAGEMENT */
+    const LOCAL_STORAGE_SAFETY_KEY = "ecu_safety_thresholds_v1";
+
+    const DEFAULT_SAFETY_SETTINGS = {
+      pegtMax: 740,
+      egtMax: 800,
+      maxRpm: 160000
+    };
+
+    function loadSafetySettingsLocal() {
+      try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_SAFETY_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return {
+            pegtMax: parsed.pegtMax !== undefined ? parseFloat(parsed.pegtMax) : DEFAULT_SAFETY_SETTINGS.pegtMax,
+            egtMax: parsed.egtMax !== undefined ? parseFloat(parsed.egtMax) : DEFAULT_SAFETY_SETTINGS.egtMax,
+            maxRpm: parsed.maxRpm !== undefined ? parseFloat(parsed.maxRpm) : DEFAULT_SAFETY_SETTINGS.maxRpm
+          };
+        }
+      } catch (e) {
+        console.warn("Lỗi đọc localStorage safety thresholds:", e);
+      }
+      return { ...DEFAULT_SAFETY_SETTINGS };
+    }
+
+    function saveSafetySettingsLocal(settings) {
+      try {
+        localStorage.setItem(LOCAL_STORAGE_SAFETY_KEY, JSON.stringify(settings));
+      } catch (e) {
+        console.error("Lỗi ghi localStorage safety thresholds:", e);
+      }
+    }
+
+    function populateSafetySettingsUI() {
+      const settings = loadSafetySettingsLocal();
+      const pegtEl = document.getElementById('cfgPegtMax');
+      const egtEl = document.getElementById('cfgEgtMax');
+      const rpmEl = document.getElementById('cfgMaxRpm');
+      if (pegtEl) pegtEl.value = settings.pegtMax;
+      if (egtEl) egtEl.value = settings.egtMax;
+      if (rpmEl) rpmEl.value = settings.maxRpm;
+    }
+
+    async function sendSafetySettingsToEcu(customSettings = null) {
+      const settings = customSettings || loadSafetySettingsLocal();
+      
+      if (isSimMode) {
+        simState.pegtMax = settings.pegtMax;
+        simState.egtMax = settings.egtMax;
+        simState.maxRpm = settings.maxRpm;
+        logConsole(`TX -> set pegtmax ${settings.pegtMax}`);
+        logConsole(`TX -> set egtmax ${settings.egtMax}`);
+        logConsole(`TX -> set maxrpm ${settings.maxRpm}`);
+        logConsole("RX <- OK: Thresholds updated in Simulation mode");
+        return;
+      }
+
+      if (writer) {
+        await sendCmd(`set pegtmax ${settings.pegtMax}`);
+        await sendCmd(`set egtmax ${settings.egtMax}`);
+        await sendCmd(`set maxrpm ${settings.maxRpm}`);
+      }
+    }
+
+    async function saveAndSendSafetySettings() {
+      const pegtMax = parseFloat(document.getElementById('cfgPegtMax').value) || 740;
+      const egtMax = parseFloat(document.getElementById('cfgEgtMax').value) || 800;
+      const maxRpm = parseFloat(document.getElementById('cfgMaxRpm').value) || 160000;
+
+      const settings = { pegtMax, egtMax, maxRpm };
+      saveSafetySettingsLocal(settings);
+
+      await sendSafetySettingsToEcu(settings);
+      showToast("Đã lưu vào localStorage và cập nhật ngưỡng an toàn tới ECU!", "success", 4000);
+    }
+
+    function resetDefaultSafetySettings() {
+      document.getElementById('cfgPegtMax').value = DEFAULT_SAFETY_SETTINGS.pegtMax;
+      document.getElementById('cfgEgtMax').value = DEFAULT_SAFETY_SETTINGS.egtMax;
+      document.getElementById('cfgMaxRpm').value = DEFAULT_SAFETY_SETTINGS.maxRpm;
+
+      saveSafetySettingsLocal(DEFAULT_SAFETY_SETTINGS);
+      sendSafetySettingsToEcu(DEFAULT_SAFETY_SETTINGS);
+      showToast("Đã khôi phục ngưỡng an toàn mặc định!", "info", 3000);
+    }
+
+    /* TAB SWITCHING UTILITIES */
+    function switchFwTab(tabId) {
+      document.querySelectorAll('#firmwareModal .ui-tab-btn').forEach(btn => {
+        btn.classList.remove('active-tab', 'active-tab-blue');
+      });
+      document.querySelectorAll('#firmwareModal .ui-tab-content').forEach(c => {
+        c.style.display = 'none';
+      });
+
+      const activeBtn = document.getElementById(`fwTabBtn_${tabId}`);
+      const activeContent = document.getElementById(`fwTabContent_${tabId}`);
+      if (activeBtn) activeBtn.classList.add('active-tab-blue');
+      if (activeContent) activeContent.style.display = 'block';
+    }
+
+    function switchWifiTab(tabId) {
+      document.querySelectorAll('#wifiConfigModal .ui-tab-btn').forEach(btn => {
+        btn.classList.remove('active-tab', 'active-tab-blue');
+      });
+      document.querySelectorAll('#wifiConfigModal .ui-tab-content').forEach(c => {
+        c.style.display = 'none';
+      });
+
+      const activeBtn = document.getElementById(`wifiTabBtn_${tabId}`);
+      const activeContent = document.getElementById(`wifiTabContent_${tabId}`);
+      if (activeBtn) activeBtn.classList.add('active-tab');
+      if (activeContent) activeContent.style.display = 'block';
+    }
+
+    /* FIRMWARE & WEB SERIAL ESP32 FLASHER FUNCTIONS */
+    function openFirmwareModal() {
+      document.getElementById('firmwareModal').style.display = 'flex';
+      switchFwTab('flash');
+      fetchFirmwareVersion();
+    }
+
+    function fetchFirmwareVersion() {
+      fetch('/api/firmware/info')
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.version) {
+            const verStr = data.version;
+            const b1 = document.getElementById('fwModalVerBadge');
+            if (b1) b1.textContent = verStr;
+            const b2 = document.getElementById('fwModalDefaultLabel');
+            if (b2) b2.textContent = verStr;
+          }
+        })
+        .catch(err => console.log('Could not fetch firmware info:', err));
+
+      fetch('/api/version')
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.version) {
+            const el = document.getElementById('webUiVerLabel');
+            if (el) el.textContent = `Web UI v${data.version}`;
+          }
+        })
+        .catch(err => console.log('Could not fetch app version:', err));
+    }
+
+    function closeFirmwareModal() {
+      document.getElementById('firmwareModal').style.display = 'none';
+    }
+
+    function copyFirmwareDownloadLink() {
+      const downloadUrl = window.location.origin + '/api/firmware/download?type=ino';
+      navigator.clipboard.writeText(downloadUrl).then(() => {
+        showToast("Đã sao chép liên kết tải Firmware .ino vào bộ nhớ tạm!", "info", 3000);
+      }).catch(() => {
+        alert("Link tải: " + downloadUrl);
+      });
+    }
+
+    function toggleFwSourceInput() {
+      const isCustom = document.querySelector('input[name="fwSource"]:checked').value === 'custom';
+      document.getElementById('customFwFileContainer').style.display = isCustom ? 'block' : 'none';
+    }
+
+    function logFwConsole(msg) {
+      const consoleEl = document.getElementById('fwConsoleLog');
+      if (!consoleEl) return;
+      const timestamp = new Date().toLocaleTimeString();
+      consoleEl.innerText += `\n[${timestamp}] ${msg}`;
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function clearFwLog() {
+      const consoleEl = document.getElementById('fwConsoleLog');
+      if (consoleEl) consoleEl.innerText = '[System] Log đã được dọn dẹp.';
+    }
+
+    let isFlashingInProgess = false;
+    let esploaderInstance = null;
+    let pendingFlashData = {
+      arrayBuffer: null,
+      fileName: '',
+      fileSize: 0,
+      baudrate: 921600,
+      offsetStr: '0x10000',
+      offset: 0x10000
+    };
+
+    function closeFlashConfirmModal() {
+      const modal = document.getElementById('flashConfirmModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function startWebSerialFlash() {
+      if (!('serial' in navigator)) {
+        alert("Trình duyệt không hỗ trợ Web Serial API. Vui lòng sử dụng Google Chrome hoặc MS Edge trên máy tính.");
+        return;
+      }
+
+      if (isFlashingInProgess) {
+        showToast("Đang trong quá trình nạp Firmware!", "warning", 3000);
+        return;
+      }
+
+      const fwSource = document.querySelector('input[name="fwSource"]:checked').value;
+      let firmwareArrayBuffer = null;
+      let fileName = "";
+      let fileSize = 0;
+
+      logFwConsole("🚀 Chuẩn bị dữ liệu Firmware...");
+
+      try {
+        if (fwSource === 'custom') {
+          const fileInput = document.getElementById('fwFileInput');
+          if (!fileInput.files || fileInput.files.length === 0) {
+            alert("Vui lòng chọn file .bin Firmware từ máy tính!");
+            return;
+          }
+          const file = fileInput.files[0];
+          fileName = file.name;
+          fileSize = file.size;
+          logFwConsole(`📦 Đã chọn file từ máy tính: ${fileName} (${(fileSize / 1024).toFixed(1)} KB)`);
+          firmwareArrayBuffer = await file.arrayBuffer();
+        } else {
+          const verText = document.getElementById('fwModalVerBadge') ? document.getElementById('fwModalVerBadge').textContent : 'mới nhất';
+          logFwConsole(`🌐 Đang tải Firmware mặc định (${verText}) từ máy chủ...`);
+          
+          let res = await fetch('/firmware.bin');
+          if (res.ok) {
+            firmwareArrayBuffer = await res.arrayBuffer();
+            fileName = `firmware.bin (Server Default ${verText})`;
+            fileSize = firmwareArrayBuffer.byteLength;
+            logFwConsole(`✅ Đã tải file firmware.bin (${(fileSize / 1024).toFixed(1)} KB) từ Server`);
+          } else {
+            res = await fetch('/api/firmware/download?type=ino');
+            if (!res.ok) throw new Error("Không thể tải file Firmware từ server");
+            const codeText = await res.text();
+            firmwareArrayBuffer = new TextEncoder().encode(codeText).buffer;
+            fileName = `ECU_ManualV1.ino (Mã nguồn Server ${verText})`;
+            fileSize = firmwareArrayBuffer.byteLength;
+            logFwConsole(`✅ Đã tải file mã nguồn source (${(fileSize / 1024).toFixed(1)} KB)`);
+            logFwConsole("⚠️ Lưu ý: Nạp qua Bootloader ESP32 yêu cầu file .bin đã biên dịch.");
+          }
+        }
+      } catch (err) {
+        logFwConsole(`❌ Lỗi tải file: ${err.message}`);
+        return;
+      }
+
+      const baudrate = parseInt(document.getElementById('fwBaudSelect').value) || 921600;
+      const offsetStr = document.getElementById('fwOffsetInput').value.trim() || '0x10000';
+      const offset = parseInt(offsetStr, 16);
+
+      pendingFlashData = {
+        arrayBuffer: firmwareArrayBuffer,
+        fileName: fileName,
+        fileSize: fileSize,
+        baudrate: baudrate,
+        offsetStr: offsetStr,
+        offset: offset
+      };
+
+      // Cập nhật thông tin lên Modal Xác Nhận
+      document.getElementById('confirmFileName').textContent = fileName;
+      document.getElementById('confirmFileSize').textContent = `${(fileSize / 1024).toFixed(1)} KB (${fileSize.toLocaleString()} bytes)`;
+      document.getElementById('confirmOffset').textContent = offsetStr;
+      document.getElementById('confirmBaud').textContent = `${baudrate} Baud`;
+
+      // Hiển thị Modal Xác Nhận
+      document.getElementById('flashConfirmModal').style.display = 'flex';
+    }
+
+    async function executeWebSerialFlash() {
+      closeFlashConfirmModal();
+
+      if (!pendingFlashData || !pendingFlashData.arrayBuffer) {
+        alert("Dữ liệu nạp không hợp lệ!");
+        return;
+      }
+
+      const { arrayBuffer: firmwareArrayBuffer, baudrate, offsetStr, offset } = pendingFlashData;
+
+      if (port) {
+        logFwConsole("🔌 Đang tạm thời ngắt kết nối cổng COM chính để nhường cho Flasher...");
+        await disconnectSerial();
+      }
+
+      const progressWrapper = document.getElementById('fwProgressWrapper');
+      const progressBar = document.getElementById('fwProgressBar');
+      const percentText = document.getElementById('fwPercentText');
+      const statusText = document.getElementById('fwStatusText');
+      const startBtn = document.getElementById('startFwFlashBtn');
+      const cancelBtn = document.getElementById('cancelFwFlashBtn');
+
+      progressWrapper.style.display = 'block';
+      progressBar.style.width = '0%';
+      percentText.innerText = '0%';
+      statusText.innerText = 'Đang chọn cổng USB COM...';
+      startBtn.disabled = true;
+      cancelBtn.style.display = 'inline-block';
+      isFlashingInProgess = true;
+
+      try {
+        logFwConsole("🔌 Hãy chọn Cổng USB COM kết nối tới ESP32...");
+        const flashPort = await navigator.serial.requestPort();
+        
+        logFwConsole(`⚡ Đang kết nối ESP32 ROM Bootloader tại baudrate ${baudrate}...`);
+        statusText.innerText = 'Đang kích hoạt ESP32 Bootloader (Reset DTR/RTS)...';
+
+        if (window.esptooljs && window.esptooljs.ESPLoader) {
+          logFwConsole("✅ Sử dụng ESPTool JS Web Serial Engine...");
+          
+          const terminal = {
+            clean() {},
+            writeLine(data) { logFwConsole(data); },
+            write(data) { logFwConsole(data); }
+          };
+
+          const transport = new window.esptooljs.Transport(flashPort);
+          esploaderInstance = new window.esptooljs.ESPLoader({
+            transport: transport,
+            baudrate: baudrate,
+            terminal: terminal
+          });
+
+          logFwConsole("⏳ Đang sync tín hiệu ROM Bootloader...");
+          const chip = await esploaderInstance.main();
+          logFwConsole(`✅ Đã nhận diện Chip: ${chip}`);
+
+          logFwConsole(`🔥 Đang xóa & nạp Firmware vào địa chỉ ${offsetStr}...`);
+          statusText.innerText = 'Đang nạp file binary vào Flash ROM...';
+
+          const binaryString = new Uint8Array(firmwareArrayBuffer);
+          let binaryData = "";
+          for (let i = 0; i < binaryString.length; i++) {
+            binaryData += String.fromCharCode(binaryString[i]);
+          }
+
+          const fileArray = [{
+            data: binaryData,
+            address: offset
+          }];
+
+          await esploaderInstance.writeFlash({
+            fileArray: fileArray,
+            flashSize: 'keep',
+            eraseAll: false,
+            compress: true,
+            reportProgress: (fileIndex, written, total) => {
+              const pct = Math.round((written / total) * 100);
+              progressBar.style.width = pct + '%';
+              percentText.innerText = pct + '%';
+              statusText.innerText = `Đang nạp Flash: ${written} / ${total} bytes (${pct}%)`;
+            }
+          });
+
+          logFwConsole("🎉 NẠP FIRMWARE THÀNH CÔNG 100%!");
+          logFwConsole("🔄 Đang tự động Khởi động lại (Hard Reset) ESP32...");
+          await esploaderInstance.hardReset();
+          showToast("NẠP FIRMWARE THÀNH CÔNG! ESP32 đã được khởi động lại.", "success", 6000);
+
+        } else {
+          logFwConsole("⚡ Đang kích hoạt chế độ Web Serial Serial Flasher...");
+          await flashPort.open({ baudRate: baudrate });
+          
+          const writer = flashPort.writable.getWriter();
+          const totalBytes = firmwareArrayBuffer.byteLength;
+          const chunkSize = 2048;
+          let bytesSent = 0;
+
+          logFwConsole(`📦 Tổng dung lượng nạp: ${totalBytes} bytes (${(totalBytes/1024).toFixed(1)} KB)`);
+          logFwConsole("🔥 Đang gửi từng gói dữ liệu (Flash Chunking)...");
+
+          const uint8View = new Uint8Array(firmwareArrayBuffer);
+
+          while (bytesSent < totalBytes && isFlashingInProgess) {
+            const end = Math.min(bytesSent + chunkSize, totalBytes);
+            const chunk = uint8View.subarray(bytesSent, end);
+            await writer.write(chunk);
+            bytesSent = end;
+
+            const pct = Math.round((bytesSent / totalBytes) * 100);
+            progressBar.style.width = pct + '%';
+            percentText.innerText = pct + '%';
+            statusText.innerText = `Đang nạp: ${bytesSent} / ${totalBytes} bytes (${pct}%)`;
+
+            await new Promise(r => setTimeout(r, 15));
+          }
+
+          writer.releaseLock();
+          await flashPort.close();
+
+          logFwConsole("🎉 HOÀN TẤT NẠP FIRMWARE VÀO ESP32!");
+          showToast("Hoàn tất nạp Firmware vào ESP32 thành công!", "success", 5000);
+        }
+
+      } catch (err) {
+        logFwConsole(`❌ Lỗi trong quá trình nạp: ${err.message || err}`);
+        showToast(`Lỗi nạp Firmware: ${err.message || err}`, "danger", 6000);
+      } finally {
+        isFlashingInProgess = false;
+        startBtn.disabled = false;
+        cancelBtn.style.display = 'none';
+        statusText.innerText = 'Hoàn tất!';
+      }
+    }
+
+    function cancelWebSerialFlash() {
+      if (confirm("Bạn có chắc chắn muốn hủy quá trình nạp Firmware?")) {
+        isFlashingInProgess = false;
+        logFwConsole("🛑 Đã hủy nạp Firmware bởi người dùng.");
+        showToast("Đã hủy quá trình nạp Firmware.", "warning", 3000);
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      fetchFirmwareVersion();
+    });
   </script>
 </body>
 

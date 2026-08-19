@@ -1,0 +1,21 @@
+node_modules/
+.env
+.env.local
+*.log
+dist/
+
+# Firmware & Build Artifacts
+*.bin
+*.elf
+*.hex
+*.ino.bin
+*.ino.elf
+*.ino.hex
+build/
+# Allow compiled ECU firmware.bin for Web UI / OTA downloads
+!PROJECT_CURRENT/Firmware/ECU_ManualV1/firmware.bin
+
+# OS & Temp Files
+.DS_Store
+Thumbs.db
+*.tmp

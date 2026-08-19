@@ -1,0 +1,82 @@
+name: Auto Compile ESP32 Firmware & Bump Version
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-firmware:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Ensure Latest Remote Code
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull origin ${{ github.ref_name }} --rebase
+
+      - name: Auto Increment Version & Sync Docs
+        run: |
+          node scripts/bump-version.js
+
+      - name: Setup Python & Dependencies
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install PySerial
+        run: pip install pyserial
+
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 Platform & Libraries
+        env:
+          ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS: "https://espressif.github.io/arduino-esp32/package_esp32_index.json"
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+          arduino-cli board list
+          arduino-cli lib install "Adafruit MAX31855 library"
+          arduino-cli lib install "Adafruit GFX Library"
+          arduino-cli lib install "Adafruit SSD1306"
+
+      - name: Compile ECU_ManualV1 Sketch
+        env:
+          ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS: "https://espressif.github.io/arduino-esp32/package_esp32_index.json"
+        run: |
+          mkdir -p build
+          arduino-cli compile --fqbn esp32:esp32:esp32 PROJECT_CURRENT/Firmware/ECU_ManualV1/ECU_ManualV1.ino --output-dir build/
+
+      - name: Copy Compiled Binary to Firmware Directory
+        run: |
+          cp build/ECU_ManualV1.ino.bin PROJECT_CURRENT/Firmware/ECU_ManualV1/firmware.bin || cp build/*.bin PROJECT_CURRENT/Firmware/ECU_ManualV1/firmware.bin
+
+      - name: Commit & Push Version & Firmware Updates
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add version.json package.json PROJECT_CURRENT/Tools/index.html PROJECT_CURRENT/Firmware/ECU_ManualV1/ECU_ManualV1.ino PROJECT_CURRENT/Docs/CHANGELOG.md PROJECT_CURRENT/README.md .gitignore
+          git add -f PROJECT_CURRENT/Firmware/ECU_ManualV1/firmware.bin
+          if git commit -m "auto: bump version & compile ESP32 firmware.bin"; then
+            git pull origin ${{ github.ref_name }} --rebase -X ours || true
+            git push origin ${{ github.ref_name }}
+          else
+            echo "No changes to commit."
+          fi
+
+

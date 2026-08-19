@@ -1,0 +1,74 @@
+name: Auto Deploy ECU Dashboard
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_run:
+    workflows: ["Auto Compile ESP32 Firmware & Bump Version"]
+    types:
+      - completed
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy on Self-Hosted Runner (ecu-dashboard)
+    runs-on: self-hosted
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || github.ref_name || 'main' }}
+
+      - name: 🔄 Pull Latest Code
+        run: |
+          git fetch origin
+          git reset --hard origin/main || git reset --hard origin/master || true
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 📦 Install Dependencies
+        run: |
+          npm ci || npm install
+
+      - name: 🔑 Configure Environment Variables (.env)
+        run: |
+          # Nếu chưa có file .env trên máy Runner, tạo file .env mới
+          if [ ! -f .env ]; then
+            echo "Creating default .env file..."
+            touch .env
+          fi
+
+          # Thêm/Cập nhật từ GitHub Secrets nếu có
+          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
+            grep -q "^GEMINI_API_KEY=" .env && sed -i "s/^GEMINI_API_KEY=.*/GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}/" .env || echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+          fi
+
+          if [ -n "${{ secrets.PORT }}" ]; then
+            grep -q "^PORT=" .env && sed -i "s/^PORT=.*/PORT=${{ secrets.PORT }}/" .env || echo "PORT=${{ secrets.PORT }}" >> .env
+          elif ! grep -q "^PORT=" .env; then
+            echo "PORT=3000" >> .env
+          fi
+
+          echo "✅ Đã kiểm tra và giữ nguyên/cập nhật file .env trên máy Runner"
+
+      - name: 🚀 Restart Application (PM2 / Systemd)
+        run: |
+          # Kiểm tra và tự động restart server bằng PM2 trên máy Runner
+          if command -v pm2 &> /dev/null; then
+            echo "Restarting application with PM2..."
+            pm2 restart ecu-dashboard --update-env || pm2 start server.js --name "ecu-dashboard" --update-env
+            pm2 save
+          else
+            echo "⚠️ PM2 chưa được cài đặt trên máy Runner."
+            echo "Khuyến nghị chạy lệnh trên Runner: npm install -g pm2"
+            echo "Đang thử khởi chạy lại background process..."
+            pkill -f "node server.js" || true
+            nohup node server.js > app.log 2>&1 &
+          fi
