@@ -27,7 +27,7 @@ extern void sdLogEvent(const String& msg);
 extern int pumpUs;
 extern int startUs;
 extern const char* rpmEdgeName();
-extern char otaUrl[128];
+extern char otaUrl[192];
 extern SemaphoreHandle_t sdMutex;
 
 // ---------------- Pins ----------------
@@ -508,6 +508,26 @@ void IRAM_ATTR rpmISR() {
   isrAcceptedPulses++;
 }
 
+// ---------------- EGT (MAX31855) ----------------
+static const uint32_t EGT_READ_PERIOD_MS = 120;
+Adafruit_MAX31855 thermo(PIN_EGT_CLK, PIN_EGT_CS, PIN_EGT_DO);
+
+struct EgtState {
+  bool ok = false;
+  float c = NAN, prevC = NAN, gradientCps = 0.0f, cProjected3s = NAN;
+  uint8_t fault = 0;
+  uint32_t lastReadMs = 0, lastGoodMs = 0;
+} egt;
+
+String egtFaultString(uint8_t f) {
+  if (f == 0) return "SPI/WIRING";
+  String s = "";
+  if (f & MAX31855_FAULT_OPEN) s += "OPEN ";
+  if (f & MAX31855_FAULT_SHORT_GND) s += "SHORT_GND ";
+  if (f & MAX31855_FAULT_SHORT_VCC) s += "SHORT_VCC ";
+  s.trim(); return s;
+}
+
 void resetRpmStats() {
   noInterrupts();
   isrLastRawEdgeUs = 0; isrLastAcceptedPulseUs = 0; isrLastPeriodUs = 0;
@@ -715,26 +735,6 @@ void updateRpm() {
       sendWebStatus();
     }
   }
-}
-
-// ---------------- EGT (MAX31855) ----------------
-static const uint32_t EGT_READ_PERIOD_MS = 120;
-Adafruit_MAX31855 thermo(PIN_EGT_CLK, PIN_EGT_CS, PIN_EGT_DO);
-
-struct EgtState {
-  bool ok = false;
-  float c = NAN, prevC = NAN, gradientCps = 0.0f, cProjected3s = NAN;
-  uint8_t fault = 0;
-  uint32_t lastReadMs = 0, lastGoodMs = 0;
-} egt;
-
-String egtFaultString(uint8_t f) {
-  if (f == 0) return "SPI/WIRING";
-  String s = "";
-  if (f & MAX31855_FAULT_OPEN) s += "OPEN ";
-  if (f & MAX31855_FAULT_SHORT_GND) s += "SHORT_GND ";
-  if (f & MAX31855_FAULT_SHORT_VCC) s += "SHORT_VCC ";
-  s.trim(); return s;
 }
 
 void updateEgt() {

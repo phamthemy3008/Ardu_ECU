@@ -1,7 +1,7 @@
-# Ardu_ECU — ECU Manual V1 (Version 5.9)
+# Ardu_ECU — ECU Manual V1 (Version 7.9)
 
 ECU (Engine Control Unit) cho động cơ phản lực mô hình mini (Enjet E86), chạy trên vi điều khiển ESP32.
-Phiên bản **Manual V1** tập trung vào điều khiển thủ công hoàn toàn qua **Web Serial API** (không dùng WiFi), đảm bảo độ tin cậy và chống nhiễu cao nhất trong môi trường công nghiệp/motor.
+Phiên bản **Manual V1** tập trung vào điều khiển thủ công và tự động qua **Web Serial API** & **Over-The-Air (OTA)**, đảm bảo độ tin cậy và chống nhiễu cao nhất trong môi trường công nghiệp/motor.
 
 ---
 
@@ -13,9 +13,9 @@ Ardu_ECU/
 ├── PROJECT_CURRENT/           ← Dự án đang phát triển (bắt đầu từ đây)
 │   ├── Firmware/              
 │   │   └── ECU_ManualV1/
-│   │       └── ECU_ManualV1.ino   ← Code ESP32 (v5.9, mở bằng Arduino IDE)
+│   │       └── ECU_ManualV1.ino   ← Code ESP32 (v7.9, mở bằng Arduino IDE / GitHub Actions)
 │   ├── Tools/                 
-│   │   └── index.html             ← Web Dashboard (v5.9, mở bằng Chrome/Edge)
+│   │   └── index.html             ← Web Dashboard (v7.9, mở bằng Chrome/Edge)
 │   ├── Hardware/                  ← Sơ đồ nguyên lý và Netlist PCB
 │   └── Docs/                      ← Tài liệu kỹ thuật & Hướng dẫn triển khai
 │

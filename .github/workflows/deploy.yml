@@ -1,21 +1,20 @@
 name: Auto Deploy ECU Dashboard
 
 on:
-  push:
-    branches:
-      - main
-      - master
   workflow_run:
     workflows: ["Auto Compile ESP32 Firmware & Bump Version"]
     types:
       - completed
+    branches:
+      - main
+      - master
   workflow_dispatch:
 
 jobs:
   deploy:
     name: Deploy on Self-Hosted Runner (ecu-dashboard)
     runs-on: self-hosted
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: 📥 Checkout Code
