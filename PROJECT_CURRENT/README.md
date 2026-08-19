@@ -1,7 +1,7 @@
-# PROJECT_CURRENT — ECU Manual V1 (Version 7.8)
+# PROJECT_CURRENT — ECU Manual V1 (Version 7.9)
 
-**Trạng thái**: Phiên bản v7.8 (Hoàn thiện & Ổn định)  
-**Cập nhật**: 2026-08-10  
+**Trạng thái**: Phiên bản v7.9 (Hoàn thiện & Ổn định)  
+**Cập nhật**: 2026-08-19  
 
 ---
 
@@ -11,10 +11,10 @@
 PROJECT_CURRENT/
 │
 ├── Firmware/ECU_ManualV1/
-│   └── ECU_ManualV1.ino           ← Firmware ESP32 (Arduino IDE / GitHub Actions, v7.6)
+│   └── ECU_ManualV1.ino           ← Firmware ESP32 (Arduino IDE / GitHub Actions, v7.9)
 │
 ├── Tools/
-│   └── index.html                 ← Web Dashboard & Web Serial ESP32 Flasher (Chrome/Edge, v7.6)
+│   └── index.html                 ← Web Dashboard & Web Serial ESP32 Flasher (Chrome/Edge, v7.9)
 │
 ├── Hardware/
 │   ├── ECU_JET_20260723.net       ← Netlist PCB (PADS)

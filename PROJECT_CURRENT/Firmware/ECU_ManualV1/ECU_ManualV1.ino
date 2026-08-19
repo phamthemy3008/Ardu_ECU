@@ -989,7 +989,7 @@ bool loadConfigFromSd() {
 #include <HTTPUpdate.h>
 #include <ArduinoOTA.h>
 
-char otaUrl[128] = "http://domain-cua-ban.com/firmware.bin";
+char otaUrl[192] = "https://raw.githubusercontent.com/phamthemy3008/Adru_ECU/main/PROJECT_CURRENT/Firmware/ECU_ManualV1/firmware.bin";
 bool otaEnabled = false;
 bool otaInProgress = false;
 bool otaBootCheckDone = false;
