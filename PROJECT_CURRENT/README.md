@@ -1,6 +1,6 @@
-# PROJECT_CURRENT — ECU Manual V1 (Version 8.0)
+# PROJECT_CURRENT — ECU Manual V1 (Version 7.9)
 
-**Trạng thái**: Phiên bản v8.0 (Hoàn thiện & Ổn định)  
+**Trạng thái**: Phiên bản v7.9 (Hoàn thiện & Ổn định)  
 **Cập nhật**: 2026-08-19  
 
 ---

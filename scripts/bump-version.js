@@ -92,15 +92,21 @@ function run() {
     }
   }
 
-  // 6. Update README.md
-  const readmePath = path.join(rootDir, 'PROJECT_CURRENT', 'README.md');
-  if (fs.existsSync(readmePath)) {
-    let readme = fs.readFileSync(readmePath, 'utf8');
-    readme = readme.replace(/\(Version \d+\.\d+\)/g, `(Version ${newVersionStr})`);
-    readme = readme.replace(/Phiên bản v\d+\.\d+/g, `Phiên bản v${newVersionStr}`);
-    readme = readme.replace(/Cập nhật\*\*: \d{4}-\d{2}-\d{2}/g, `Cập nhật**: ${dateStr}`);
-    fs.writeFileSync(readmePath, readme, 'utf8');
-    console.log(`[✓] Updated README.md -> Version ${newVersionStr}`);
+  // 6. Update README.md (both root and PROJECT_CURRENT)
+  const readmePaths = [
+    path.join(rootDir, 'README.md'),
+    path.join(rootDir, 'PROJECT_CURRENT', 'README.md')
+  ];
+  for (const rPath of readmePaths) {
+    if (fs.existsSync(rPath)) {
+      let readme = fs.readFileSync(rPath, 'utf8');
+      readme = readme.replace(/\(Version \d+\.\d+\)/g, `(Version ${newVersionStr})`);
+      readme = readme.replace(/Phiên bản v\d+\.\d+/g, `Phiên bản v${newVersionStr}`);
+      readme = readme.replace(/v\d+\.\d+/g, `v${newVersionStr}`);
+      readme = readme.replace(/Cập nhật\*\*: \d{4}-\d{2}-\d{2}/g, `Cập nhật**: ${dateStr}`);
+      fs.writeFileSync(rPath, readme, 'utf8');
+      console.log(`[✓] Updated ${path.relative(rootDir, rPath)} -> Version ${newVersionStr}`);
+    }
   }
 
   console.log(`Successfully bumped project version to v${newVersionStr}`);

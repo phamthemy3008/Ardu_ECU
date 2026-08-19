@@ -372,13 +372,13 @@ RpmNoiseLevel classifyRpmNoise(bool recent, uint32_t raw, uint32_t accepted, uin
   if (raw > 1 && accepted == 0) return RPM_NOISY;
   
   // Nếu tín hiệu lọt qua mask RẤT ỔN ĐỊNH (jitter thấp), chứng tỏ Mask đã lọc thành công nhiễu đồng bộ (vd: từ chổi than).
-  // Ta không nên phạt quá nặng (NOISY) chỉ vì rejectPct cao.
+  // Không phạt xuống NOISY/WARN khi jitter thấp và chu kỳ ổn định.
   bool maskSuccessful = (intervals >= 3 && jitterPct < 15.0f && rpmDiffPct < 15.0f);
 
-  if (!maskSuccessful && (rejected >= 3 || rejectPct > 20.0f || (intervals >= 5 && jitterPct > 30.0f) || rpmDiffPct > 30.0f)) {
+  if (!maskSuccessful && (rejected >= 4 || rejectPct > 35.0f || (intervals >= 5 && jitterPct > 30.0f) || rpmDiffPct > 30.0f)) {
     return RPM_NOISY;
   }
-  if (rejected > 0 || rejectPct > 5.0f || (intervals >= 3 && jitterPct > 15.0f) || rpmDiffPct > 15.0f) {
+  if (!maskSuccessful && (rejected > 1 || rejectPct > 15.0f || (intervals >= 3 && jitterPct > 15.0f) || rpmDiffPct > 15.0f)) {
     return RPM_WARN;
   }
   return RPM_CLEAN;
@@ -470,7 +470,7 @@ void IRAM_ATTR rpmISR() {
     uint32_t dtAcceptedUs = nowUs - isrLastAcceptedPulseUs;
     uint32_t maskUs = filterUs;
     if (isrLastPeriodUs > 0 && isrLastPeriodUs <= 100000UL) {
-      uint32_t dynMaskUs = (isrLastPeriodUs * 65UL) / 100UL; // Siết chặt mặt nạ động 65% để lọc bỏ đột biến > 65% Delta
+      uint32_t dynMaskUs = (isrLastPeriodUs * 48UL) / 100UL; // Mặt nạ động 48% cho phép gia tốc lên tới 2x mà không rớt xung
       if (dynMaskUs > 50000UL) dynMaskUs = 50000UL;
       if (dynMaskUs > maskUs) maskUs = dynMaskUs;
     }
@@ -694,14 +694,14 @@ void updateRpm() {
     }
 
     // --- CASCADED DUAL-EMA bậc 2: Lọc 2 tầng nối tiếp ---
-    // Chọn hệ số lọc mềm mại dựa trên trạng thái Đề, Chuyển tiếp & Nhiễu (khuyến nghị chẩn đoán AI: alpha 0.18 giúp FRPM mịn tuyệt đối)
+    // Hệ số lọc tối ưu: Triệt tiêu gai nhiễu tức thời đồng thời loại bỏ độ trễ pha khi giảm/tăng tua nhanh
     float alpha1, alpha2, alphaTrigger;
     if (startUs > ESC_SAFE_US || inStarterTransition) {
-      alpha1 = 0.18f; alpha2 = 0.35f; alphaTrigger = 0.12f; // Đề / chuyển tiếp: Lọc cực mịn, triệt tiêu gai nhiễu EMI
+      alpha1 = 0.32f; alpha2 = 0.55f; alphaTrigger = 0.45f; // Đề / chuyển tiếp: Lọc êm, bám tua nhanh trong 150ms
     } else if (rpmData.noise >= RPM_WARN || rpmData.rpmFiltered < 25000.0f) {
-      alpha1 = 0.28f; alpha2 = 0.48f; alphaTrigger = 0.22f; // Tự quay dải thấp / nhiễu: Lọc vừa
+      alpha1 = 0.40f; alpha2 = 0.65f; alphaTrigger = 0.50f; // Tự quay dải thấp / nhiễu: Lọc vừa
     } else {
-      alpha1 = 0.45f; alpha2 = 0.65f; alphaTrigger = 0.40f; // Tự quay dải cao & sạch: Lọc nhanh
+      alpha1 = 0.60f; alpha2 = 0.80f; alphaTrigger = 0.65f; // Tự quay dải cao & sạch: Lọc tức thời
     }
 
     if (rpmData.rpmStage1 == 0.0f && rawRpmCandidate > 0.0f) {
@@ -870,7 +870,7 @@ bool loadConfigFromNvs() {
   pumpStepUs    = preferences.getUChar("pumpstep", 10);
   String wSsid  = preferences.getString("wifissid", "");
   String wPass  = preferences.getString("wifipass", "");
-  String oUrl   = preferences.getString("otaurl", "http://domain-cua-ban.com/firmware.bin");
+  String oUrl   = preferences.getString("otaurl", otaUrl);
   wSsid.toCharArray(wifiSsid, sizeof(wifiSsid));
   wPass.toCharArray(wifiPass, sizeof(wifiPass));
   oUrl.toCharArray(otaUrl, sizeof(otaUrl));
@@ -985,6 +985,7 @@ bool loadConfigFromSd() {
 
 // ---------------- SD Telemetry & Event Logging (Async Core 0 Task) ----------------
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <HTTPUpdate.h>
 #include <ArduinoOTA.h>
@@ -1011,8 +1012,16 @@ void checkHttpOtaOnBoot() {
   Serial.println(otaUrl);
 
   HTTPClient http;
-  http.begin(otaUrl);
-  http.setTimeout(4000); // 4 seconds timeout for check
+  bool isHttps = (strncmp(otaUrl, "https://", 8) == 0);
+  if (isHttps) {
+    WiFiClientSecure secClient;
+    secClient.setInsecure();
+    http.begin(secClient, otaUrl);
+  } else {
+    http.begin(otaUrl);
+  }
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setTimeout(5000); // 5 seconds timeout for check
   int httpCode = http.GET();
 
   if (httpCode == HTTP_CODE_OK || httpCode == 301 || httpCode == 302) {
@@ -1047,10 +1056,19 @@ void performHttpOtaUpdate() {
   delay(500);
 
   Serial.print("HTTP OTA: Downloading & Flashing from "); Serial.println(otaUrl);
-  WiFiClient client;
   httpUpdate.rebootOnUpdate(true);
+  httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
 
-  t_httpUpdate_return ret = httpUpdate.update(client, otaUrl);
+  bool isHttps = (strncmp(otaUrl, "https://", 8) == 0);
+  t_httpUpdate_return ret;
+  if (isHttps) {
+    WiFiClientSecure secureClient;
+    secureClient.setInsecure();
+    ret = httpUpdate.update(secureClient, otaUrl);
+  } else {
+    WiFiClient client;
+    ret = httpUpdate.update(client, otaUrl);
+  }
 
   switch (ret) {
     case HTTP_UPDATE_FAILED:
@@ -1442,7 +1460,7 @@ void sendWebStatus() {
   } else {
     Serial.print("OFF");
   }
-  Serial.print(" | VER=8.0");
+  Serial.print(" | VER=7.9");
   Serial.println();
 }
 
@@ -1860,7 +1878,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 8.0");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 7.9");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 
   if (strlen(wifiSsid) > 0) {
