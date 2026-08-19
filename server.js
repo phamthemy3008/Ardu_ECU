@@ -160,6 +160,7 @@ function getAppVersion() {
 
 // API Lấy thông tin Version hiện tại của dự án
 app.get('/api/version', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   const v = getAppVersion();
   res.json({
     version: v,
@@ -172,6 +173,7 @@ app.get('/api/version', (req, res) => {
 // API Thông tin Firmware
 app.get('/api/firmware/info', (req, res) => {
   try {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     const inoPath = path.join(firmwareDir, 'ECU_ManualV1.ino');
     let fileSize = 0;
     if (fs.existsSync(inoPath)) {
