@@ -220,12 +220,20 @@ float getExpectedStarterRpm(int starterPwmUs) {
     float t = (float)(idx - leftIdx) / (float)(rightIdx - leftIdx);
     return starterRpmMap[leftIdx].rpmEstimate + t * (starterRpmMap[rightIdx].rpmEstimate - starterRpmMap[leftIdx].rpmEstimate);
   } else if (leftIdx >= 0) {
-    // KHÔNG extrapolate ngang (sẽ ghim RPM thấp khi PWM tăng). Trả về -1 để bỏ qua Phase 3.
-    return -1.0f;
+    // Nếu chỉ có dữ liệu bên trái, extrapolate tuyến tính dựa trên hệ số mặc định (30 RPM / us)
+    float baseRpm = starterRpmMap[leftIdx].rpmEstimate;
+    int baseUs = ESC_MIN_US + leftIdx * PWM_BIN_WIDTH;
+    return baseRpm + (starterPwmUs - baseUs) * 30.0f;
   } else if (rightIdx >= 0) {
-    return -1.0f;
+    float baseRpm = starterRpmMap[rightIdx].rpmEstimate;
+    int baseUs = ESC_MIN_US + rightIdx * PWM_BIN_WIDTH;
+    float ext = baseRpm - (baseUs - starterPwmUs) * 30.0f;
+    return (ext > 0.0f) ? ext : 0.0f;
   }
-  return -1.0f; // Chưa có dữ liệu nào
+  
+  // Chưa có dữ liệu nào: Sử dụng mô hình lý thuyết (Linear map: 1000us = 0 -> 2000us = ~30000)
+  float theoreticRpm = (starterPwmUs - 1000) * 30.0f;
+  return (theoreticRpm > 0.0f) ? theoreticRpm : 0.0f;
 }
 
 void resetLearnedRpmMap() {
@@ -670,7 +678,7 @@ void updateRpm() {
 
       // PHASE 3 - LỌC: Tolerance window từ dữ liệu đã học
       float expectedRpm = getExpectedStarterRpm(startUs);
-      if (expectedRpm > 0.0f && rawRpmCandidate > 0.0f) {
+      if (expectedRpm > 0.0f) {
         uint16_t n = starterRpmMap[currentBinIdx].sampleCount;
         float tolerance = (n < PWM_BIN_MIN_TRUST) ? 0.50f : max(0.25f, 0.50f - (float)(n - PWM_BIN_MIN_TRUST) * 0.001f);
         float lo = expectedRpm * (1.0f - tolerance);
@@ -678,14 +686,14 @@ void updateRpm() {
         if (rpmFloor > 0.0f && lo < rpmFloor * 0.80f) lo = rpmFloor * 0.80f;
         
         if (!activeCombustion) {
-          // Khi chỉ quay bằng motor đề: Kẹp cả trần trên và sàn dưới
-          if (rawRpmCandidate < lo || rawRpmCandidate > hi) {
+          // Khi chỉ quay bằng motor đề: Kẹp cả trần trên và sàn dưới, hoặc nếu bị ghim 0 do nhiễu
+          if (rawRpmCandidate < lo || rawRpmCandidate > hi || rawRpmCandidate == 0.0f) {
             rawRpmCandidate = expectedRpm;
             rpmData.prevRawRpmCandidate = expectedRpm;
           }
         } else {
           // Khi đang đốt dầu sinh công: Chỉ kẹp sàn dưới chống rớt ảo, CHO PHÉP vượt trần hi để spool-up
-          if (rawRpmCandidate < lo * 0.75f) {
+          if (rawRpmCandidate < lo * 0.75f || rawRpmCandidate == 0.0f) {
             rawRpmCandidate = expectedRpm;
             rpmData.prevRawRpmCandidate = expectedRpm;
           }
@@ -1460,7 +1468,7 @@ void sendWebStatus() {
   } else {
     Serial.print("OFF");
   }
-  Serial.print(" | VER=8.0");
+  Serial.print(" | VER=7.9");
   Serial.println();
 }
 
@@ -1878,7 +1886,7 @@ void setup() {
   bool thermoOk = thermo.begin();
   thermo.setFaultChecks(MAX31855_FAULT_ALL);
 
-  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 8.0");
+  Serial.println("ECU Manual V1 booted (Serial-only, fully manual) - VERSION 7.9");
   Serial.print("MAX31855 begin() = "); Serial.println(thermoOk ? "OK" : "CHECK_WIRING");
 
   if (strlen(wifiSsid) > 0) {

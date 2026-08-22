@@ -526,6 +526,13 @@
                     <span style="font-size:12px; color:#8b949e;">Flash Offset:</span>
                     <input type="text" id="fwOffsetInput" value="0x10000" style="background:#0d1117; color:#38bdf8; border:1px solid #30363d; padding:4px 8px; border-radius:6px; font-size:12px; width:90px; text-align:center; font-family:monospace;">
                   </div>
+
+                  <div style="display:flex; align-items:center; gap:8px; margin-top:2px;">
+                    <input type="checkbox" id="fwEraseAllToggle" style="accent-color:#00b894; cursor:pointer;">
+                    <label for="fwEraseAllToggle" style="font-size:11px; color:#f0f6fc; cursor:pointer;">
+                      🧹 Xóa sạch Flash (Erase All - Xóa triệt để OTA data & App cũ)
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -553,13 +560,18 @@
             </div>
 
             <!-- Main Action Button -->
-            <div style="display:flex; gap:10px; justify-content:flex-end;">
-              <button id="startFwFlashBtn" class="btn btn-success" style="padding:10px 22px; font-size:13px; font-weight:bold; background-color:#00b894;" onclick="startWebSerialFlash()">
-                🚀 BẮT ĐẦU NẠP FIRMWARE
+            <div style="display:flex; gap:10px; justify-content:space-between; align-items:center; flex-wrap:wrap;">
+              <button id="eraseFwFlashBtn" class="btn" style="padding:10px 16px; font-size:12px; background-color:#334155; color:#f87171; border:1px solid #475569;" onclick="startWebSerialEraseFlash()" title="Xóa trắng toàn bộ bộ nhớ Flash ESP32">
+                🧹 Xóa Sạch Flash ESP32
               </button>
-              <button id="cancelFwFlashBtn" class="btn btn-danger" style="padding:10px 16px; font-size:13px; display:none;" onclick="cancelWebSerialFlash()">
-                🛑 Hủy Nạp
-              </button>
+              <div style="display:flex; gap:10px;">
+                <button id="startFwFlashBtn" class="btn btn-success" style="padding:10px 22px; font-size:13px; font-weight:bold; background-color:#00b894;" onclick="startWebSerialFlash()">
+                  🚀 BẮT ĐẦU NẠP FIRMWARE
+                </button>
+                <button id="cancelFwFlashBtn" class="btn btn-danger" style="padding:10px 16px; font-size:13px; display:none;" onclick="cancelWebSerialFlash()">
+                  🛑 Hủy Nạp
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -643,7 +655,7 @@
   </div>
 
   <div class="header">
-    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;"><span id="webUiVerLabel">Web UI v8.0</span> | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span> <span id="rxHzBadge" style="font-size: 11px; font-weight: bold; color: #00ff87; background: rgba(0, 255, 135, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(0, 255, 135, 0.3); margin-left: 10px;" title="Tần số mẫu (Sampling Rate) nhận dữ liệu từ Serial / Telemetry">📡 Serial Rx: <span id="rxHzVal" style="color:#00ff87;">0.0</span> Hz</span> <span id="otaBadge" style="font-size: 11px; font-weight: bold; color: #74b9ff; background: rgba(116, 185, 255, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(116, 185, 255, 0.3); margin-left: 6px;" title="Trạng thái Nạp OTA (Over-The-Air) trên Core 0">📶 OTA: <span id="otaVal" style="color:#74b9ff;">OFF</span></span> <span id="wifiBadge" style="font-size: 11px; font-weight: bold; color: #fdcb6e; background: rgba(253, 203, 110, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(253, 203, 110, 0.3); margin-left: 6px;" title="Địa chỉ IP Wi-Fi ESP32">📶 Wi-Fi: <span id="wifiVal" style="color:#fdcb6e;">OFF</span></span></span></h2>
+    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;"><span id="webUiVerLabel">Web UI v7.9</span> | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span> <span id="rxHzBadge" style="font-size: 11px; font-weight: bold; color: #00ff87; background: rgba(0, 255, 135, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(0, 255, 135, 0.3); margin-left: 10px;" title="Tần số mẫu (Sampling Rate) nhận dữ liệu từ Serial / Telemetry">📡 Serial Rx: <span id="rxHzVal" style="color:#00ff87;">0.0</span> Hz</span> <span id="otaBadge" style="font-size: 11px; font-weight: bold; color: #74b9ff; background: rgba(116, 185, 255, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(116, 185, 255, 0.3); margin-left: 6px;" title="Trạng thái Nạp OTA (Over-The-Air) trên Core 0">📶 OTA: <span id="otaVal" style="color:#74b9ff;">OFF</span></span> <span id="wifiBadge" style="font-size: 11px; font-weight: bold; color: #fdcb6e; background: rgba(253, 203, 110, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(253, 203, 110, 0.3); margin-left: 6px;" title="Địa chỉ IP Wi-Fi ESP32">📶 Wi-Fi: <span id="wifiVal" style="color:#fdcb6e;">OFF</span></span></span></h2>
     <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
       <button id="wifiConfigBtn" class="btn" style="background-color: #00b894;" onclick="openWifiModal()">📶 Cấu Hình Wi-Fi & OTA</button>
       <button id="audioAlertBtn" class="btn" style="background-color: #2d3436; border: 1px solid #555;" onclick="toggleAudioAlert()">🔔 Âm Cảnh Báo: Bật</button>
@@ -780,6 +792,17 @@
     </div>
     <div class="chart-container">
       <canvas id="ecuChart"></canvas>
+    </div>
+  </div>
+
+  <!-- SMART ASSISTANT BANNER -->
+  <div class="card" style="margin-bottom: 20px; border-left: 5px solid var(--accent); background: linear-gradient(90deg, #1e1e1e 0%, #252830 100%);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h3 style="margin:0; color:#00adb5; font-size:16px;">🤖 Trợ Lý Khởi Động Thủ Công (Smart Guide)</h3>
+      <span id="assistantStateBadge" style="background:#333; padding:4px 10px; border-radius:12px; font-size:11px; font-weight:bold; color:#00ff87;">STATE: STANDBY</span>
+    </div>
+    <div id="assistantMessage" style="font-size: 15px; margin-top: 12px; line-height: 1.6; color: #fff;">
+      Đang chờ dữ liệu Telemetry...
     </div>
   </div>
 
@@ -1770,6 +1793,7 @@
         const parts = line.split('|').map(s => s.trim());
         let currentEgt = null;
         let currentRpm = null;
+        let currentDegt = null;
 
         parts.forEach(part => {
           if (part.startsWith("EGT=")) {
@@ -1777,7 +1801,11 @@
             currentEgt = parseFloat(valStr);
             document.getElementById('egtVal').innerHTML = valStr + " <span class='unit'>°C</span>";
           }
-          if (part.startsWith("dEGT=")) document.getElementById('degtVal').innerText = part.replace("dEGT=", "");
+          if (part.startsWith("dEGT=")) {
+            let valStr = part.replace("dEGT=", "");
+            currentDegt = parseFloat(valStr);
+            document.getElementById('degtVal').innerText = valStr;
+          }
           if (part.startsWith("PEGT=")) {
             let valStr = part.replace("PEGT=", "");
             document.getElementById('pegtVal').innerText = valStr;
@@ -1785,15 +1813,15 @@
           if (part.startsWith("RPM=")) {
             let valStr = part.replace("RPM=", "");
             currentRpm = parseInt(valStr);
-            document.getElementById('rpmVal').innerHTML = valStr + " <span class='unit'>RPM</span>";
+            document.getElementById('rpmVal').innerHTML = currentRpm.toLocaleString("en-US") + " <span class='unit'>RPM</span>";
           }
           if (part.startsWith("FRPM=")) {
             let valStr = part.replace("FRPM=", "");
-            document.getElementById('frpmVal').innerText = valStr;
+            document.getElementById('frpmVal').innerText = parseInt(valStr).toLocaleString("en-US");
           }
           if (part.startsWith("RRPM=")) {
             let valStr = part.replace("RRPM=", "");
-            document.getElementById('rrpmVal').innerText = valStr;
+            document.getElementById('rrpmVal').innerText = parseInt(valStr).toLocaleString("en-US");
           }
           if (part.startsWith("RNOISE=")) document.getElementById('rpmNoise').innerText = part.replace("RNOISE=", "");
           if (part.startsWith("SIG=")) {
@@ -1907,6 +1935,10 @@
           let starterUs = parseInt(document.getElementById('starterUsVal')?.innerText) || 1000;
           let pumpUs = parseInt(document.getElementById('pumpUsVal')?.innerText) || 1000;
           
+          if (typeof evaluateSmartAssistant === 'function') {
+            evaluateSmartAssistant(currentRpm, currentEgt, currentDegt, ignState, v1State, v2State, starterUs, pumpUs);
+          }
+
           recordedTelemetry.push({
             time: new Date().toLocaleTimeString(),
             egt: currentEgt,
@@ -2007,6 +2039,82 @@
           list.appendChild(div);
         }
       });
+    }
+
+    let engineState = 'STANDBY';
+    function evaluateSmartAssistant(rpm, egt, degt, ign, v1, v2, starter, pump) {
+      const msgEl = document.getElementById('assistantMessage');
+      const badgeEl = document.getElementById('assistantStateBadge');
+      if (!msgEl || !badgeEl) return;
+
+      // 0. CẢNH BÁO HOT START (Quá nhiệt & Tua thấp)
+      if (egt > 500 && rpm < 5000 && (pump > 1050)) {
+        msgEl.innerHTML = '🔥 <b style="color:var(--danger); font-size:16px;">NGUY HIỂM (HOT START): Nhiệt độ quá cao mà vòng tua thấp!</b><br>👉 Bấm Nút <b style="color:var(--danger)">Dừng Khẩn Cấp (Phím Cách)</b> ngay! Giữ Đề ở mức cao để làm mát!';
+        badgeEl.innerText = 'STATE: HOT_START_RISK';
+        badgeEl.style.color = 'var(--danger)';
+        badgeEl.style.boxShadow = '0 0 10px var(--danger)';
+        return;
+      }
+      badgeEl.style.boxShadow = 'none'; // reset shadow
+
+      // 1. RUNNING (Đã chạy ổn định)
+      if (rpm >= 10000 && egt >= 300) {
+        engineState = 'RUNNING';
+        if (ign) {
+          msgEl.innerHTML = '✅ <b>Bước 6 (Bàn Giao):</b> Động cơ đã có thể tự duy trì!<br>👉 <b>Tắt Đánh Lửa (IGN)</b>. Hệ thống đang chạy ổn định.';
+        } else {
+          msgEl.innerHTML = '✈️ <b>ĐỘNG CƠ ĐANG CHẠY ỔN ĐỊNH.</b><br>👉 Sử dụng thanh trượt PUMP để điều khiển ga động cơ.';
+        }
+        badgeEl.innerText = 'STATE: RUNNING';
+        badgeEl.style.color = '#00ff87';
+      }
+      // 2. FUEL_RAMP (Đang tăng tốc)
+      else if (ign && egt >= 300) {
+        engineState = 'FUEL_RAMP';
+        msgEl.innerHTML = '🚀 <b>Bước 5 (Tăng Tốc):</b> Nhiệt độ đã đạt mức lý tưởng.<br>👉 Tiếp tục đẩy <b>Starter</b> lên cao và tăng dần <b>Bơm (Pump)</b> (~1100µs) để kéo vòng tua vượt ngưỡng <b style="color:#00ff87;">10,000 RPM</b>.';
+        badgeEl.innerText = 'STATE: FUEL_RAMP';
+        badgeEl.style.color = '#00b894';
+      }
+      // 3. BURNER_HEATING (Đang mồi lửa)
+      else if (ign && egt >= 100) {
+        engineState = 'BURNER_HEATING';
+        if (degt < 0) {
+          msgEl.innerHTML = '⚠️ <b>Lửa đang yếu đi (EGT tụt)!</b><br>👉 Nhích nhẹ Pump (Bơm) để bù dầu, hoặc giảm Starter một chút nếu gió quá mạnh thổi tắt lửa.';
+          badgeEl.style.color = '#ffbe76';
+        } else {
+          msgEl.innerHTML = '🔥 <b>Bước 4 (Nuôi Lửa & Ép Tua):</b> Lửa Burner đang cháy tốt.<br>👉 Tăng dần thanh trượt <b>Starter</b> (lên 1400µs - 1800µs) để ép vòng tua lên cao. Đảm bảo EGT tiếp tục tăng vững.';
+          badgeEl.style.color = '#e17055';
+        }
+        badgeEl.innerText = 'STATE: BURNER_HEATING';
+      }
+      // 4. IGNITION (Bắt đầu đánh lửa)
+      else if (ign && egt < 100) {
+        engineState = 'IGNITION';
+        msgEl.innerHTML = '⚡ <b>Bước 3 (Bơm mồi):</b> Hệ thống đánh lửa đã bật.<br>👉 Đảm bảo đã mở Van. Tăng nhẹ <b>Bơm (Pump)</b> lên <span style="color:#00ff87;">~1045µs - 1050µs</span>. Chờ nghe tiếng lửa cháy và quan sát EGT tăng lên.';
+        badgeEl.innerText = 'STATE: IGNITION';
+        badgeEl.style.color = '#fdcb6e';
+      }
+      // 5. SPIN_UP (Vòng tua đủ, chờ mồi)
+      else if (!ign && rpm >= 1000 && egt < 100) {
+        engineState = 'SPIN_UP';
+        msgEl.innerHTML = '💨 <b>Bước 2 (Chuẩn bị mồi):</b> Đã có luồng gió mồi.<br>👉 Bấm mở <b style="color:#00adb5;">V1</b> và <b style="color:#00adb5;">V2</b>, sau đó bật <b style="color:#fdcb6e;">Đánh Lửa (IGN)</b>.';
+        badgeEl.innerText = 'STATE: SPIN_UP';
+        badgeEl.style.color = '#74b9ff';
+      }
+      // 6. STANDBY (Chưa khởi động)
+      else if (!ign && rpm < 1000 && egt < 100) {
+        engineState = 'STANDBY';
+        msgEl.innerHTML = '🟢 <b>Bước 1 (Xả gió / Mồi gió):</b> Động cơ sẵn sàng.<br>👉 Từ từ đẩy <b>Thanh trượt Starter (Mô-tơ Đề)</b> lên khoảng ~1200µs để kéo vòng tua đạt <span style="color:#00ff87;">3,000 - 4,000 RPM</span>.';
+        badgeEl.innerText = 'STATE: STANDBY';
+        badgeEl.style.color = '#b2bec3';
+      }
+      // 7. LỖI FLAMEOUT 
+      else if (egt >= 200 && rpm < 3000 && !ign) {
+        engineState = 'FLAMEOUT_RISK';
+        msgEl.innerHTML = '⚠️ <b>CẢNH BÁO TẮT LỬA (FLAMEOUT):</b> Động cơ đang nguội dần và vòng tua quá thấp.<br>👉 Tắt Bơm (PUMP) và Van, bật lại Đề (Starter) để xả khí dư làm mát.';
+        badgeEl.innerText = 'STATE: FLAMEOUT_RISK';
+        badgeEl.style.color = '#ffbe76';
+      }
     }
 
     const sendSerialCmd = sendCmd;
@@ -2645,14 +2753,14 @@
           const verText = document.getElementById('fwModalVerBadge') ? document.getElementById('fwModalVerBadge').textContent : 'mới nhất';
           logFwConsole(`🌐 Đang tải Firmware mặc định (${verText}) từ máy chủ...`);
           
-          let res = await fetch('/firmware.bin');
+          let res = await fetch('/firmware.bin?_t=' + Date.now());
           if (res.ok) {
             firmwareArrayBuffer = await res.arrayBuffer();
             fileName = `firmware.bin (Server Default ${verText})`;
             fileSize = firmwareArrayBuffer.byteLength;
             logFwConsole(`✅ Đã tải file firmware.bin (${(fileSize / 1024).toFixed(1)} KB) từ Server`);
           } else {
-            res = await fetch('/api/firmware/download?type=ino');
+            res = await fetch('/api/firmware/download?type=ino&_t=' + Date.now());
             if (!res.ok) throw new Error("Không thể tải file Firmware từ server");
             const codeText = await res.text();
             firmwareArrayBuffer = new TextEncoder().encode(codeText).buffer;
@@ -2670,6 +2778,7 @@
       const baudrate = parseInt(document.getElementById('fwBaudSelect').value) || 921600;
       const offsetStr = document.getElementById('fwOffsetInput').value.trim() || '0x10000';
       const offset = parseInt(offsetStr, 16);
+      const eraseAll = document.getElementById('fwEraseAllToggle') ? document.getElementById('fwEraseAllToggle').checked : false;
 
       pendingFlashData = {
         arrayBuffer: firmwareArrayBuffer,
@@ -2677,17 +2786,100 @@
         fileSize: fileSize,
         baudrate: baudrate,
         offsetStr: offsetStr,
-        offset: offset
+        offset: offset,
+        eraseAll: eraseAll
       };
 
       // Cập nhật thông tin lên Modal Xác Nhận
-      document.getElementById('confirmFileName').textContent = fileName;
+      document.getElementById('confirmFileName').textContent = fileName + (eraseAll ? ' (KÈM XÓA SẠCH FLASH)' : '');
       document.getElementById('confirmFileSize').textContent = `${(fileSize / 1024).toFixed(1)} KB (${fileSize.toLocaleString()} bytes)`;
       document.getElementById('confirmOffset').textContent = offsetStr;
       document.getElementById('confirmBaud').textContent = `${baudrate} Baud`;
 
       // Hiển thị Modal Xác Nhận
       document.getElementById('flashConfirmModal').style.display = 'flex';
+    }
+
+    async function startWebSerialEraseFlash() {
+      if (!('serial' in navigator)) {
+        alert("Trình duyệt không hỗ trợ Web Serial API. Vui lòng sử dụng Google Chrome hoặc MS Edge trên máy tính.");
+        return;
+      }
+
+      if (!confirm("CẢNH BÁO: Thao tác này sẽ XÓA SẠCH toàn bộ dữ liệu Flash trên ESP32 (bao gồm Firmware, cấu hình NVS và OTA data cũ).\n\nBạn có chắc chắn muốn xóa toàn bộ Flash không?")) {
+        return;
+      }
+
+      if (port) {
+        logFwConsole("🔌 Đang tạm thời ngắt kết nối cổng COM chính...");
+        await disconnectSerial();
+      }
+
+      const progressWrapper = document.getElementById('fwProgressWrapper');
+      const progressBar = document.getElementById('fwProgressBar');
+      const percentText = document.getElementById('fwPercentText');
+      const statusText = document.getElementById('fwStatusText');
+      const startBtn = document.getElementById('startFwFlashBtn');
+      const eraseBtn = document.getElementById('eraseFwFlashBtn');
+
+      progressWrapper.style.display = 'block';
+      progressBar.style.width = '0%';
+      percentText.innerText = '0%';
+      statusText.innerText = 'Đang chọn cổng USB COM...';
+      startBtn.disabled = true;
+      if (eraseBtn) eraseBtn.disabled = true;
+      isFlashingInProgess = true;
+
+      try {
+        logFwConsole("🔌 Hãy chọn Cổng USB COM kết nối tới ESP32 để Erase...");
+        const flashPort = await navigator.serial.requestPort();
+
+        const baudrate = parseInt(document.getElementById('fwBaudSelect').value) || 921600;
+        logFwConsole(`⚡ Đang kết nối Bootloader tại ${baudrate} baud...`);
+        statusText.innerText = 'Đang kết nối ROM Bootloader...';
+
+        if (window.esptooljs && window.esptooljs.ESPLoader) {
+          const terminal = {
+            clean() {},
+            writeLine(data) { logFwConsole(data); },
+            write(data) { logFwConsole(data); }
+          };
+
+          const transport = new window.esptooljs.Transport(flashPort);
+          esploaderInstance = new window.esptooljs.ESPLoader({
+            transport: transport,
+            baudrate: baudrate,
+            terminal: terminal
+          });
+
+          logFwConsole("⏳ Đang nhận diện Chip ESP32...");
+          const chip = await esploaderInstance.main();
+          logFwConsole(`✅ Đã nhận diện Chip: ${chip}`);
+
+          logFwConsole("🧹 ĐANG XÓA TOÀN BỘ BỘ NHỚ FLASH (ERASE ALL)...");
+          statusText.innerText = 'Đang xóa toàn bộ Flash ROM (Vui lòng chờ ~10-20s)...';
+          progressBar.style.width = '50%';
+          percentText.innerText = '50%';
+
+          await esploaderInstance.eraseFlash();
+
+          progressBar.style.width = '100%';
+          percentText.innerText = '100%';
+          statusText.innerText = 'Xóa Flash thành công!';
+          logFwConsole("🎉 ĐÃ XÓA SẠCH TOÀN BỘ FLASH ROM ESP32 THÀNH CÔNG!");
+          logFwConsole("💡 Giờ đây bạn có thể nhấn 'BẮT ĐẦU NẠP FIRMWARE' để nạp code mới tinh.");
+          showToast("Đã xóa sạch Flash ESP32! Sẵn sàng nạp Firmware mới.", "success", 5000);
+        } else {
+          alert("Thư viện esptool-js chưa sẵn sàng!");
+        }
+      } catch (err) {
+        logFwConsole(`❌ Lỗi xóa Flash: ${err.message || err}`);
+        showToast(`Lỗi xóa Flash: ${err.message || err}`, "danger", 6000);
+      } finally {
+        isFlashingInProgess = false;
+        startBtn.disabled = false;
+        if (eraseBtn) eraseBtn.disabled = false;
+      }
     }
 
     async function executeWebSerialFlash() {
@@ -2698,7 +2890,7 @@
         return;
       }
 
-      const { arrayBuffer: firmwareArrayBuffer, baudrate, offsetStr, offset } = pendingFlashData;
+      const { arrayBuffer: firmwareArrayBuffer, baudrate, offsetStr, offset, eraseAll } = pendingFlashData;
 
       if (port) {
         logFwConsole("🔌 Đang tạm thời ngắt kết nối cổng COM chính để nhường cho Flasher...");
@@ -2747,7 +2939,12 @@
           const chip = await esploaderInstance.main();
           logFwConsole(`✅ Đã nhận diện Chip: ${chip}`);
 
-          logFwConsole(`🔥 Đang xóa & nạp Firmware vào địa chỉ ${offsetStr}...`);
+          if (eraseAll) {
+            logFwConsole("🧹 Đang thực hiện Erase All trước khi nạp...");
+            statusText.innerText = 'Đang xóa sạch Flash ROM...';
+          }
+
+          logFwConsole(`🔥 Đang nạp Firmware vào địa chỉ ${offsetStr}...`);
           statusText.innerText = 'Đang nạp file binary vào Flash ROM...';
 
           const binaryString = new Uint8Array(firmwareArrayBuffer);
@@ -2764,7 +2961,7 @@
           await esploaderInstance.writeFlash({
             fileArray: fileArray,
             flashSize: 'keep',
-            eraseAll: false,
+            eraseAll: !!eraseAll,
             compress: true,
             reportProgress: (fileIndex, written, total) => {
               const pct = Math.round((written / total) * 100);
