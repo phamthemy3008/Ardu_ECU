@@ -1,7 +1,7 @@
-# PROJECT_CURRENT — ECU Manual V1 (Version 7.9)
+# PROJECT_CURRENT — ECU Manual V1 (Version 8.0)
 
-**Trạng thái**: Phiên bản v7.9 (Hoàn thiện & Ổn định)  
-**Cập nhật**: 2026-08-19  
+**Trạng thái**: Phiên bản v8.0 (Hoàn thiện & Ổn định)  
+**Cập nhật**: 2026-08-22  
 
 ---
 
@@ -11,10 +11,10 @@
 PROJECT_CURRENT/
 │
 ├── Firmware/ECU_ManualV1/
-│   └── ECU_ManualV1.ino           ← Firmware ESP32 (Arduino IDE / GitHub Actions, v7.9)
+│   └── ECU_ManualV1.ino           ← Firmware ESP32 (Arduino IDE / GitHub Actions, v8.0)
 │
 ├── Tools/
-│   └── index.html                 ← Web Dashboard & Web Serial ESP32 Flasher (Chrome/Edge, v7.9)
+│   └── index.html                 ← Web Dashboard & Web Serial ESP32 Flasher (Chrome/Edge, v8.0)
 │
 ├── Hardware/
 │   ├── ECU_JET_20260723.net       ← Netlist PCB (PADS)
@@ -87,7 +87,7 @@ PROJECT_CURRENT/
 
 ---
 
-## Tính Năng Chính & Cải Tiến (v7.6)
+## Tính Năng Chính & Cải Tiến (v8.0)
 
 - **Kiến Trúc Đa Nhân FreeRTOS Cô Lập Tuyệt Đối (Multi-Core Isolation)**:
   - **Core 1 (Engine Control Core)**: Xử lý độc quyền các tác vụ thời gian thực mức phần cứng (RPM ISR, cảm biến EGT SPI, điều xung ESC PWM, bộ lọc RPM 7 tầng, logic ngắt khẩn cấp). Đảm bảo tính thời gian thực 100% không bị trễ do mạng hay thẻ SD.
