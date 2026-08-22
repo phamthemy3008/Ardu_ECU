@@ -1,6 +1,10 @@
 name: Auto Deploy ECU Dashboard
 
 on:
+  push:
+    branches:
+      - main
+      - master
   workflow_run:
     workflows: ["Auto Compile ESP32 Firmware & Bump Version"]
     types:
@@ -14,7 +18,7 @@ jobs:
   deploy:
     name: Deploy on Self-Hosted Runner (ecu-dashboard)
     runs-on: self-hosted
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: 📥 Checkout Code
@@ -25,7 +29,9 @@ jobs:
       - name: 🔄 Pull Latest Code
         run: |
           git fetch origin
-          git reset --hard origin/main || git reset --hard origin/master || true
+          TARGET_BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name || 'main' }}"
+          git reset --hard "origin/$TARGET_BRANCH" || git reset --hard origin/main || true
+          git clean -fd
 
       - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v4
@@ -59,11 +65,16 @@ jobs:
 
       - name: 🚀 Restart Application (PM2 / Systemd)
         run: |
+          DEPLOY_DIR=$(pwd)
+          echo "Current deployment directory: $DEPLOY_DIR"
+
           # Kiểm tra và tự động restart server bằng PM2 trên máy Runner
           if command -v pm2 &> /dev/null; then
-            echo "Restarting application with PM2..."
-            pm2 restart ecu-dashboard --update-env || pm2 start server.js --name "ecu-dashboard" --update-env
+            echo "Restarting application with PM2 at $DEPLOY_DIR..."
+            pm2 delete ecu-dashboard || true
+            pm2 start "$DEPLOY_DIR/server.js" --name "ecu-dashboard" --cwd "$DEPLOY_DIR" --update-env
             pm2 save
+            echo "✅ PM2 đã khởi động ứng dụng từ $DEPLOY_DIR"
           else
             echo "⚠️ PM2 chưa được cài đặt trên máy Runner."
             echo "Khuyến nghị chạy lệnh trên Runner: npm install -g pm2"
@@ -71,3 +82,4 @@ jobs:
             pkill -f "node server.js" || true
             nohup node server.js > app.log 2>&1 &
           fi
+

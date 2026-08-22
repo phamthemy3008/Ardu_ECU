@@ -244,9 +244,21 @@ app.post('/api/firmware/upload-bin', express.raw({ type: '*/*', limit: '10mb' })
   }
 });
 
-app.use(express.static(toolsDir));
+app.use(express.static(toolsDir, {
+  etag: false,
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html') || filePath.endsWith('.json')) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 
 app.get('*', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.sendFile(path.join(toolsDir, 'index.html'));
 });
 
