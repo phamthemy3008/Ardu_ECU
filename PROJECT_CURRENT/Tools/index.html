@@ -655,7 +655,7 @@
   </div>
 
   <div class="header">
-    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;"><span id="webUiVerLabel">Web UI v8.0</span> | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span> <span id="rxHzBadge" style="font-size: 11px; font-weight: bold; color: #00ff87; background: rgba(0, 255, 135, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(0, 255, 135, 0.3); margin-left: 10px;" title="Tần số mẫu (Sampling Rate) nhận dữ liệu từ Serial / Telemetry">📡 Serial Rx: <span id="rxHzVal" style="color:#00ff87;">0.0</span> Hz</span> <span id="otaBadge" style="font-size: 11px; font-weight: bold; color: #74b9ff; background: rgba(116, 185, 255, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(116, 185, 255, 0.3); margin-left: 6px;" title="Trạng thái Nạp OTA (Over-The-Air) trên Core 0">📶 OTA: <span id="otaVal" style="color:#74b9ff;">OFF</span></span> <span id="wifiBadge" style="font-size: 11px; font-weight: bold; color: #fdcb6e; background: rgba(253, 203, 110, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(253, 203, 110, 0.3); margin-left: 6px;" title="Địa chỉ IP Wi-Fi ESP32">📶 Wi-Fi: <span id="wifiVal" style="color:#fdcb6e;">OFF</span></span></span></h2>
+    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;"><span id="webUiVerLabel">Web UI v7.9</span> | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span> <span id="rxHzBadge" style="font-size: 11px; font-weight: bold; color: #00ff87; background: rgba(0, 255, 135, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(0, 255, 135, 0.3); margin-left: 10px;" title="Tần số mẫu (Sampling Rate) nhận dữ liệu từ Serial / Telemetry">📡 Serial Rx: <span id="rxHzVal" style="color:#00ff87;">0.0</span> Hz</span> <span id="otaBadge" style="font-size: 11px; font-weight: bold; color: #74b9ff; background: rgba(116, 185, 255, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(116, 185, 255, 0.3); margin-left: 6px;" title="Trạng thái Nạp OTA (Over-The-Air) trên Core 0">📶 OTA: <span id="otaVal" style="color:#74b9ff;">OFF</span></span> <span id="wifiBadge" style="font-size: 11px; font-weight: bold; color: #fdcb6e; background: rgba(253, 203, 110, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(253, 203, 110, 0.3); margin-left: 6px;" title="Địa chỉ IP Wi-Fi ESP32">📶 Wi-Fi: <span id="wifiVal" style="color:#fdcb6e;">OFF</span></span></span></h2>
     <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
       <button id="wifiConfigBtn" class="btn" style="background-color: #00b894;" onclick="openWifiModal()">📶 Cấu Hình Wi-Fi & OTA</button>
       <button id="audioAlertBtn" class="btn" style="background-color: #2d3436; border: 1px solid #555;" onclick="toggleAudioAlert()">🔔 Âm Cảnh Báo: Bật</button>
@@ -2054,7 +2054,7 @@
       if (!msgEl || !badgeEl) return;
 
       // 0. CẢNH BÁO HOT START (Quá nhiệt & Tua thấp)
-      if (egt > 500 && rpm < 5000 && (pump > 1050)) {
+      if (egt > 550 && rpm < 5000 && (pump > 1050)) {
         msgEl.innerHTML = '🔥 <b style="color:var(--danger); font-size:16px;">NGUY HIỂM (HOT START): Nhiệt độ quá cao mà vòng tua thấp!</b><br>👉 Bấm Nút <b style="color:var(--danger)">Dừng Khẩn Cấp (Phím Cách)</b> ngay! Giữ Đề ở mức cao để làm mát!';
         badgeEl.innerText = 'STATE: HOT_START_RISK';
         badgeEl.style.color = 'var(--danger)';
@@ -2063,63 +2063,67 @@
       }
       badgeEl.style.boxShadow = 'none'; // reset shadow
 
-      // 1. RUNNING (Đã chạy ổn định)
-      if (v2 && rpm >= 20000 && egt >= 300) {
+      // 1. RUNNING / BÀN GIAO THÀNH CÔNG (Đã đủ nhiệt nung > 450°C & tua > 20.000 RPM)
+      if (v2 && rpm >= 20000 && egt >= 450) {
         engineState = 'RUNNING';
         if (ign || v1) {
-          msgEl.innerHTML = '✅ <b>Bước 6 (Bàn Giao):</b> Động cơ đã tự duy trì (Tua > 20,000)!<br>👉 <b>Tắt Đánh Lửa (IGN) và Tắt Van Mồi (V1)</b>. Chỉ giữ lại Van Chính (V2).';
+          msgEl.innerHTML = `✅ <b>Bước 6 (Bàn Giao Tự Duy Trì):</b> Buồng đốt đã đủ nhiệt nung (<span style="color:#00ff87;">EGT ${egt.toFixed(1)}°C &gt; 450°C</span>) & tua tự duy trì (<span style="color:#00ff87;">RPM ${Math.round(rpm)} &gt; 20,000</span>)!<br>👉 <b>BÂY GIỜ hãy TẮT Đánh Lửa (IGN) và TẮT Van Mồi (V1)</b>. Động cơ đã tự hóa khí và duy trì 100% bằng Van Chính (V2).`;
           badgeEl.style.color = '#00ff87';
-          badgeEl.innerText = 'STATE: RUNNING';
+          badgeEl.innerText = 'STATE: READY_HANDOVER';
         } else if (degt < -15) {
-          msgEl.innerHTML = '⚠️ <b>NHIỆT ĐỘ ĐANG TỤT NHANH!</b> Lửa chính có nguy cơ tắt.<br>👉 Tăng thêm Bơm (Pump) để bù nhiên liệu ngay lập tức!';
+          msgEl.innerHTML = '⚠️ <b>NHIỆT ĐỘ ĐANG TỤT NHANH!</b> Lửa chính có nguy cơ lịm.<br>👉 Tăng thêm Bơm (Pump) để bù nhiên liệu ngay lập tức!';
           badgeEl.style.color = '#ff9f43';
           badgeEl.innerText = 'STATE: RUNNING';
         } else {
-          msgEl.innerHTML = '✈️ <b>ĐỘNG CƠ ĐANG CHẠY ỔN ĐỊNH.</b><br>👉 Tăng PUMP để đạt ngưỡng Idle (42,000 RPM) và vận hành bình thường.';
+          msgEl.innerHTML = '✈️ <b>ĐỘNG CƠ ĐÃ TỰ DUY TRÌ 100% (V2 Active).</b><br>👉 Tăng PUMP để đạt ngưỡng Idle (~42,000 RPM) và vận hành bình thường.';
           badgeEl.style.color = '#00ff87';
           badgeEl.innerText = 'STATE: RUNNING';
         }
       }
-      // 1.5. CỨU LỬA CHÍNH / FLAMEOUT (Đang mở V2 nhưng nhiệt tụt hoặc lịm máy)
-      else if ((!ign || !v1) && v2 && (rpm < 20000 || egt < 300)) {
+      // 1.5. CỨU LỬA CHÍNH / TẮT MỒI QUÁ SỚM / FLAMEOUT (Đang mở V2 nhưng tắt IGN/V1 khi EGT < 450°C hoặc tua < 20.000)
+      else if ((!ign || !v1) && v2 && (rpm < 20000 || egt < 450)) {
         if (egt < 150) {
           engineState = 'FLAMEOUT';
-          msgEl.innerHTML = '❌ <b>CHẾT MÁY (FLAMEOUT):</b> Lửa chính đã tắt!<br>👉 <b style="color:var(--danger)">Tắt ngay Van Chính (V2) và Bơm.</b> Đẩy Starter lên cao để xả khí dư, ngăn cháy nổ.';
+          msgEl.innerHTML = '❌ <b>CHẾT MÁY (FLAMEOUT):</b> Lửa chính đã tắt!<br>👉 <b style="color:var(--danger)">Tắt ngay Van Chính (V2) và Bơm.</b> Đẩy Starter lên cao để xả sạch dầu dư trong buồng đốt, ngăn đọng cháy nổ.';
           badgeEl.innerText = 'STATE: FLAMEOUT';
           badgeEl.style.color = '#ff7675';
         } else {
           engineState = 'WEAK_MAIN_FLAME';
-          msgEl.innerHTML = '⚠️ <b>CẢNH BÁO TỤT TUA / TỤT NHIỆT:</b> Động cơ đang lịm dần!<br>👉 Lập tức bật lại <b style="color:#fdcb6e;">Đánh Lửa (IGN)</b> và <b style="color:#00adb5;">V1 (Van Mồi)</b> để cứu lửa. Tăng nhẹ Bơm bù dầu.';
-          badgeEl.innerText = 'STATE: WEAK_MAIN_FLAME';
+          msgEl.innerHTML = `⚠️ <b>CẢNH BÁO TẮT MỒI QUÁ SỚM (EGT ${egt.toFixed(1)}°C &lt; 450°C hoặc Tua &lt; 20.000)!</b><br>👉 Ống bốc hơi chưa đủ nóng để tự hóa khí dầu V2 (Cần EGT &gt; 450°C). <b>BẬT LẠI NGAY Đánh Lửa (IGN) và Van Mồi (V1)</b> để cứu lửa! Nhích nhẹ Bơm bù dầu.`;
+          badgeEl.innerText = 'STATE: PREMATURE_CUTOFF';
           badgeEl.style.color = '#ff9f43';
         }
       }
-      // 2. FUEL_RAMP (Đang tăng tốc)
+      // 2. FUEL_RAMP & NUNG ỐNG BỐC HƠI (Đã mồi thành công EGT >= 300°C, giữ IGN/V1 nung lên 450°C)
       else if (ign && egt >= 300) {
         engineState = 'FUEL_RAMP';
         if (!v2) {
-          msgEl.innerHTML = '🚀 <b>Bước 5 (Sang Van & Tăng Tốc):</b> Nhiệt độ đã đạt mức lý tưởng (> 300°C).<br>👉 Lập tức bấm mở <b style="color:#00adb5;">V2 (Van Chính)</b> và tăng nhẹ <b>Bơm (Pump)</b> (~1100µs) để mồi lửa chính.';
+          msgEl.innerHTML = '🚀 <b>Bước 5 (Mở Van Chính V2):</b> Nhiệt độ mồi đã đạt mốc an toàn (> 300°C).<br>👉 Bấm mở <b style="color:#00adb5;">V2 (Van Chính)</b>, <b style="color:#fdcb6e;">VẪN GIỮ NGUYÊN IGN & V1</b>. Tăng dần <b>Bơm (Pump)</b> (~1150µs - 1350µs) để nung buồng đốt vượt mốc <b style="color:#ff9f43;">450°C - 500°C</b>.';
           badgeEl.style.color = '#00b894';
         } else if (degt <= 0) {
-          msgEl.innerHTML = '⚠️ <b>NHIỆT ĐỘ ĐANG CHỮNG LẠI (Không tăng hoặc tụt)!</b><br>👉 Đã mở V2. Hãy nhích nhẹ thêm <b>Bơm (Pump)</b> để cấp đủ nhiên liệu cho buồng đốt chính, tránh bị gió từ Starter thổi tắt!';
+          if (starter >= 1800) {
+            msgEl.innerHTML = `⚠️ <b>NHIỆT ĐỘ ĐANG CHỮNG LẠI DO GIÓ QUÁ MẠNH!</b><br>👉 Đề đang kéo rất cao (~${Math.round(starter)}µs) thổi bạt hơi nóng buồng đốt. <b>HÃM NHẸ Starter</b> xuống ~1400µs - 1600µs và nhích nhẹ thêm <b>Bơm (Pump)</b> để buồng đốt ngậm nhiệt &gt; 450°C.`;
+          } else {
+            msgEl.innerHTML = '⚠️ <b>NHIỆT ĐỘ ĐANG CHỮNG LẠI (Chưa đạt 450°C)!</b><br>👉 Nhích nhẹ thêm <b>Bơm (Pump)</b> để cấp đủ dầu cho V2 nung nóng ống bốc hơi. <b style="color:var(--danger)">CẤM TẮT IGN / V1 lúc này!</b>';
+          }
           badgeEl.style.color = '#ff9f43';
         } else {
-          msgEl.innerHTML = '🚀 <b>Bước 5 (Tăng Tốc):</b> Lửa chính đã bắt tốt (Đã mở V2).<br>👉 Tiếp tục đẩy <b>Starter</b> lên cao và tăng dần <b>Bơm (Pump)</b> để kéo vòng tua vượt ngưỡng <b style="color:#00ff87;">20,000 RPM</b>.';
+          msgEl.innerHTML = `🔥 <b>Bước 5 (Nung Buồng Đốt Chính):</b> Đang nung nóng ống bốc hơi (EGT đang tăng ${degt > 0 ? '+' + degt.toFixed(1) + '°C/s' : ''}).<br>👉 <b style="color:#fdcb6e;">TIẾP TỤC GIỮ NGUYÊN IGN & V1</b>. Nhích đều Bơm (Pump) và phối hợp Starter để đưa EGT vượt <b style="color:#00ff87;">&gt; 450°C</b> và tua đạt <b style="color:#00ff87;">&gt; 20,000 RPM</b>.`;
           badgeEl.style.color = '#00b894';
         }
-        badgeEl.innerText = 'STATE: FUEL_RAMP';
+        badgeEl.innerText = 'STATE: VAPORIZER_HEATING';
       }
-      // 3. BURNER_HEATING (Đang mồi lửa)
+      // 3. BURNER_HEATING (Đang nuôi lửa mồi V1)
       else if (ign && egt >= 100) {
         engineState = 'BURNER_HEATING';
         if (v2) {
-          msgEl.innerHTML = '❌ <b style="color:var(--danger)">CẢNH BÁO: MỞ V2 QUÁ SỚM!</b><br>👉 Nhiệt độ chưa đủ 300°C. Hãy TẮT NGAY V2 để tránh nổ, chỉ dùng V1 nuôi lửa!';
+          msgEl.innerHTML = '❌ <b style="color:var(--danger)">CẢNH BÁO: MỞ V2 QUÁ SỚM!</b><br>👉 Nhiệt độ chưa đủ 300°C. Hãy TẮT NGAY V2 để tránh ngập dầu sống, chỉ dùng V1 nuôi lửa!';
           badgeEl.style.color = '#ff7675';
         } else if (degt <= 0) {
           msgEl.innerHTML = '⚠️ <b>LỬA ĐANG YẾU (Nhiệt không tăng hoặc tụt)!</b><br>👉 Nhích nhẹ Pump (Bơm) để bù dầu cho V1, hoặc giảm Starter (Đề) một chút nếu gió quá mạnh thổi bạt lửa.';
           badgeEl.style.color = '#ffbe76';
         } else {
-          msgEl.innerHTML = '🔥 <b>Bước 4 (Nuôi Lửa & Ép Tua):</b> Lửa Burner đang cháy tốt (Nhiệt độ đang tăng).<br>👉 Tăng dần thanh trượt <b>Starter</b> (lên 1400µs - 1800µs) để ép vòng tua. <b style="color:var(--danger)">CẤM MỞ V2 lúc này!</b> Chờ EGT > 300°C.';
+          msgEl.innerHTML = '🔥 <b>Bước 4 (Nuôi Lửa Mồi & Ép Tua):</b> Lửa Burner V1 đang cháy tốt (Nhiệt độ đang tăng).<br>👉 Tăng dần thanh trượt <b>Starter</b> (lên 1400µs - 1800µs) để ép tua. <b style="color:var(--danger)">CẤM MỞ V2 & CẤM TẮT IGN lúc này!</b> Chờ EGT > 300°C.';
           badgeEl.style.color = '#e17055';
         }
         badgeEl.innerText = 'STATE: BURNER_HEATING';
