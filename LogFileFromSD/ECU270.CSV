@@ -1,0 +1,6 @@
+ms,type,egtC,dEgtCps,rpm,fRpm,rRpm,pumpUs,starterUs,ign,valve1,valve2,event
+5514,EVENT,,, 0, 0, 0,1000,1000,0,0,0,"BOOT SD_LOG_READY"
+9556,EVENT,,, 0, 0, 0,1000,1000,0,0,0,"EV:A05_ALL_OFF"
+9558,DATA,45.5,0.0, 0, 0,697200,1000,1000,0,0,0,""
+10058,DATA,45.5,0.0, 0, 0,3600,1000,1000,0,0,0,""
+10558,DATA,45.5,0.0, 0, 0,1800,1000,1000,0,0,0,""

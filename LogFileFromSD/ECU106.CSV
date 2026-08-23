@@ -1,0 +1,4 @@
+ms,type,mode,stage,egtC,dEgtCps,rpm,targetRpm,pumpUs,flowMlMin,fuelTargetUs,starterUs,ign,valve1,valve2,throttlePct,abortReason,event
+3944,EVENT,WAITING,NONE,,, 0,0,1000,0.0,1000,1000,0,0,0,0,"NONE","BOOT SD_LOG_READY"
+3945,EVENT,WAITING,NONE,,, 0,0,1000,0.0,1000,1000,0,0,0,0,"NONE","BOOT Test ECU V1 WebUI/TestWizard"
+4048,EVENT,WAITING,NONE,,, 0,0,1000,0.0,1000,1000,0,0,0,0,"NONE","WEB ON ECU_TestV1 http://192.168.4.1"

@@ -655,7 +655,7 @@
   </div>
 
   <div class="header">
-    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;"><span id="webUiVerLabel">Web UI v8.0</span> | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span> <span id="rxHzBadge" style="font-size: 11px; font-weight: bold; color: #00ff87; background: rgba(0, 255, 135, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(0, 255, 135, 0.3); margin-left: 10px;" title="Tần số mẫu (Sampling Rate) nhận dữ liệu từ Serial / Telemetry">📡 Serial Rx: <span id="rxHzVal" style="color:#00ff87;">0.0</span> Hz</span> <span id="otaBadge" style="font-size: 11px; font-weight: bold; color: #74b9ff; background: rgba(116, 185, 255, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(116, 185, 255, 0.3); margin-left: 6px;" title="Trạng thái Nạp OTA (Over-The-Air) trên Core 0">📶 OTA: <span id="otaVal" style="color:#74b9ff;">OFF</span></span> <span id="wifiBadge" style="font-size: 11px; font-weight: bold; color: #fdcb6e; background: rgba(253, 203, 110, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(253, 203, 110, 0.3); margin-left: 6px;" title="Địa chỉ IP Wi-Fi ESP32">📶 Wi-Fi: <span id="wifiVal" style="color:#fdcb6e;">OFF</span></span></span></h2>
+    <h2>ECU Manual V1 - Web Dashboard <span style="font-size: 0.5em; font-weight: normal; color: var(--subtext); margin-left: 15px;"><span id="webUiVerLabel">Web UI v7.9</span> | ECU: <span id="ecuVersion" style="color: var(--accent);">Unknown</span> <span id="rxHzBadge" style="font-size: 11px; font-weight: bold; color: #00ff87; background: rgba(0, 255, 135, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(0, 255, 135, 0.3); margin-left: 10px;" title="Tần số mẫu (Sampling Rate) nhận dữ liệu từ Serial / Telemetry">📡 Serial Rx: <span id="rxHzVal" style="color:#00ff87;">0.0</span> Hz</span> <span id="otaBadge" style="font-size: 11px; font-weight: bold; color: #74b9ff; background: rgba(116, 185, 255, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(116, 185, 255, 0.3); margin-left: 6px;" title="Trạng thái Nạp OTA (Over-The-Air) trên Core 0">📶 OTA: <span id="otaVal" style="color:#74b9ff;">OFF</span></span> <span id="wifiBadge" style="font-size: 11px; font-weight: bold; color: #fdcb6e; background: rgba(253, 203, 110, 0.12); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(253, 203, 110, 0.3); margin-left: 6px;" title="Địa chỉ IP Wi-Fi ESP32">📶 Wi-Fi: <span id="wifiVal" style="color:#fdcb6e;">OFF</span></span></span></h2>
     <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
       <button id="wifiConfigBtn" class="btn" style="background-color: #00b894;" onclick="openWifiModal()">📶 Cấu Hình Wi-Fi & OTA</button>
       <button id="audioAlertBtn" class="btn" style="background-color: #2d3436; border: 1px solid #555;" onclick="toggleAudioAlert()">🔔 Âm Cảnh Báo: Bật</button>
@@ -835,71 +835,99 @@
   </div>
 
   <div class="grid">
-    <!-- STARTER CONTROLLER -->
-    <div class="card">
-      <h3>Điều khiển Mô-tơ Đề (Starter)</h3>
-      <div class="control-group">
-        <div class="slider-container">
-          <input type="range" id="starterSlider" min="1000" max="2000" value="1000"
-            oninput="updateStarterFromSlider(this.value)">
-          <span id="starterUsVal" style="min-width: 90px; padding: 6px 12px; font-size: 20px; font-weight: bold; color: #00ff87; background: #121212; border: 1px solid #00ff87; border-radius: 6px; text-align: center; box-shadow: 0 0 10px rgba(0, 255, 135, 0.2);">1000 µs</span>
-        </div>
 
-        <div class="step-control-container">
-          <span style="font-size: 12px; color: var(--subtext);">Bước nhảy:</span>
-          <input type="number" id="starterStepVal" class="num-input" value="10" min="1" max="100">
-          <button class="btn-step" onclick="adjustStarter(-1)">-</button>
-          <button class="btn-step" onclick="adjustStarter(1)">+</button>
-        </div>
+    <!-- KHỐI ĐIỀU KHIỂN HỆ THỐNG ĐỘNG LỰC (STARTER & PUMP) -->
+    <div class="card" style="border: 1px solid rgba(0, 255, 135, 0.25); box-shadow: 0 4px 15px rgba(0,0,0,0.4);">
+      <h3 style="margin-bottom: 12px; color: #fff; font-size: 14px; display: flex; align-items: center; justify-content: space-between;">
+        <span>🎛️ HỆ THỐNG ĐỘNG LỰC (ĐỀ & BƠM)</span>
+      </h3>
 
-        <div class="custom-preset-group">
-          <input type="number" id="starterCustomVal" class="num-input" value="1200" min="1000" max="2000"
-            style="flex:1;">
-          <button class="btn" style="flex:1;" onclick="startStarterCustom()">Bật Đề</button>
-          <button class="btn btn-danger" style="flex:1;" onclick="stopStarter()">Tắt Đề</button>
+      <!-- CỤM NÚT ĐỒNG THỜI (ĐỀ + BƠM) -->
+      <div style="background: linear-gradient(135deg, rgba(0, 255, 135, 0.08), rgba(0, 173, 181, 0.08)); border: 1px solid rgba(0, 255, 135, 0.3); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 12px; font-weight: bold; color: #00ff87; display: flex; align-items: center; gap: 4px;">⚡🌊 ĐỒNG THỜI (ĐỀ + BƠM)</span>
+          <span style="font-size: 10px; background: rgba(0, 255, 135, 0.15); color: #00ff87; padding: 2px 6px; border-radius: 10px; border: 1px solid rgba(0, 255, 135, 0.3); font-weight: bold;">Phím: [ / ]</span>
         </div>
-
-        <div style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; background: #1a1a1a; padding: 8px 12px; border-radius: 6px; border: 1px solid #333;">
-          <span style="font-size: 12px; color: var(--subtext);">⚡ Gia Tốc Mũ (Exponential Ramp 1.0s):</span>
-          <label class="switch">
-            <input type="checkbox" id="starterRampToggle" checked onchange="toggleStarterRamp(this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
+        <div class="btn-grid" style="gap: 8px;">
+          <button class="btn" style="background: linear-gradient(135deg, #d63031, #b71540); padding: 10px 8px; font-size: 13px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 4px 12px rgba(214,48,49,0.3); border-radius: 6px;" onclick="adjustDual(-1)" title="Giảm cùng lúc cả Đề và Bơm (Phím [ )">
+            <span>➖</span> <span>GIẢM CẢ 2 [</span>
+          </button>
+          <button class="btn" style="background: linear-gradient(135deg, #00b894, #00cec9); color: #121212; padding: 10px 8px; font-size: 13px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 4px 12px rgba(0,184,148,0.3); border-radius: 6px;" onclick="adjustDual(1)" title="Tăng cùng lúc cả Đề và Bơm (Phím ] )">
+            <span>➕</span> <span>TĂNG CẢ 2 ]</span>
+          </button>
         </div>
       </div>
-    </div>
 
-    <!-- PUMP CONTROLLER -->
-    <div class="card">
-      <h3>Điều khiển Bơm nhiên liệu (Pump)</h3>
-      <div class="control-group">
-        <div class="slider-container">
-          <input type="range" id="pumpSlider" min="1000" max="2000" value="1000"
-            oninput="updatePumpFromSlider(this.value)">
-          <span id="pumpUsVal" style="min-width: 90px; padding: 6px 12px; font-size: 20px; font-weight: bold; color: #00adb5; background: #121212; border: 1px solid #00adb5; border-radius: 6px; text-align: center; box-shadow: 0 0 10px rgba(0, 173, 181, 0.2);">1000 µs</span>
+      <!-- PHẦN ĐIỀU KHIỂN MÔ-TƠ ĐỀ (STARTER) -->
+      <div style="background: #181818; padding: 12px; border-radius: 8px; border: 1px solid #2d2d2d; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 13px; font-weight: bold; color: #fff;">⚡ Mô-tơ Đề (Starter)</span>
+          <span id="starterUsVal" style="padding: 3px 8px; font-size: 15px; font-weight: bold; color: #00ff87; background: #121212; border: 1px solid #00ff87; border-radius: 4px;">1000 µs</span>
         </div>
+        <div class="control-group" style="margin-bottom: 0;">
+          <div class="slider-container">
+            <input type="range" id="starterSlider" min="1000" max="2000" value="1000"
+              oninput="updateStarterFromSlider(this.value)">
+          </div>
 
-        <div class="step-control-container">
-          <span style="font-size: 12px; color: var(--subtext);">Bước nhảy:</span>
-          <input type="number" id="pumpStepVal" class="num-input" value="10" min="1" max="100">
-          <button class="btn-step" onclick="adjustPump(-1)">-</button>
-          <button class="btn-step" onclick="adjustPump(1)">+</button>
-        </div>
+          <div class="step-control-container">
+            <span style="font-size: 12px; color: var(--subtext);">Bước:</span>
+            <input type="number" id="starterStepVal" class="num-input" value="10" min="1" max="100" style="width: 55px;">
+            <button class="btn-step" onclick="adjustStarter(-1)">-</button>
+            <button class="btn-step" onclick="adjustStarter(1)">+</button>
+          </div>
 
-        <div class="custom-preset-group">
-          <input type="number" id="pumpCustomVal" class="num-input" value="1200" min="1000" max="2000" style="flex:1;">
-          <button class="btn" style="flex:1;" onclick="startPumpCustom()">Bật Bơm</button>
-          <button class="btn btn-danger" style="flex:1;" onclick="stopPump()">Tắt Bơm</button>
-        </div>
+          <div class="custom-preset-group">
+            <input type="number" id="starterCustomVal" class="num-input" value="1200" min="1000" max="2000" style="flex:1;">
+            <button class="btn" style="flex:1;" onclick="startStarterCustom()">Bật Đề</button>
+            <button class="btn btn-danger" style="flex:1;" onclick="stopStarter()">Tắt Đề</button>
+          </div>
 
-        <div style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; background: #1a1a1a; padding: 8px 12px; border-radius: 6px; border: 1px solid #333;">
-          <span style="font-size: 12px; color: var(--subtext);">🌊 Đường Cong S-Curve (Smooth Ramp 1.5s):</span>
-          <label class="switch">
-            <input type="checkbox" id="pumpRampToggle" checked onchange="togglePumpRamp(this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
+          <div style="margin-top: 6px; display: flex; align-items: center; justify-content: space-between; background: #121212; padding: 6px 10px; border-radius: 6px; border: 1px solid #282828;">
+            <span style="font-size: 11px; color: var(--subtext);">⚡ Gia Tốc Mũ (1.0s):</span>
+            <label class="switch" style="transform: scale(0.85); margin: 0;">
+              <input type="checkbox" id="starterRampToggle" checked onchange="toggleStarterRamp(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
         </div>
       </div>
+
+      <!-- PHẦN ĐIỀU KHIỂN BƠM NHIÊN LIỆU (PUMP) -->
+      <div style="background: #181818; padding: 12px; border-radius: 8px; border: 1px solid #2d2d2d;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 13px; font-weight: bold; color: #fff;">🌊 Bơm Nhiên Liệu (Pump)</span>
+          <span id="pumpUsVal" style="padding: 3px 8px; font-size: 15px; font-weight: bold; color: #00adb5; background: #121212; border: 1px solid #00adb5; border-radius: 4px;">1000 µs</span>
+        </div>
+        <div class="control-group" style="margin-bottom: 0;">
+          <div class="slider-container">
+            <input type="range" id="pumpSlider" min="1000" max="2000" value="1000"
+              oninput="updatePumpFromSlider(this.value)">
+          </div>
+
+          <div class="step-control-container">
+            <span style="font-size: 12px; color: var(--subtext);">Bước:</span>
+            <input type="number" id="pumpStepVal" class="num-input" value="10" min="1" max="100" style="width: 55px;">
+            <button class="btn-step" onclick="adjustPump(-1)">-</button>
+            <button class="btn-step" onclick="adjustPump(1)">+</button>
+          </div>
+
+          <div class="custom-preset-group">
+            <input type="number" id="pumpCustomVal" class="num-input" value="1200" min="1000" max="2000" style="flex:1;">
+            <button class="btn" style="flex:1;" onclick="startPumpCustom()">Bật Bơm</button>
+            <button class="btn btn-danger" style="flex:1;" onclick="stopPump()">Tắt Bơm</button>
+          </div>
+
+          <div style="margin-top: 6px; display: flex; align-items: center; justify-content: space-between; background: #121212; padding: 6px 10px; border-radius: 6px; border: 1px solid #282828;">
+            <span style="font-size: 11px; color: var(--subtext);">🌊 Smooth S-Curve (1.5s):</span>
+            <label class="switch" style="transform: scale(0.85); margin: 0;">
+              <input type="checkbox" id="pumpRampToggle" checked onchange="togglePumpRamp(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- CÔNG TẮC, CONFIG SD & STOP KHẨN CẤP -->
@@ -1631,6 +1659,30 @@
       updatePumpFromSlider(newVal);
     }
 
+    // --- ĐIỀU KHIỂN ĐỒNG THỜI (DUAL SYNC: ĐỀ + BƠM) ---
+    function adjustDual(direction) {
+      // 1. Tinh chỉnh Mô-tơ Đề (Starter)
+      let currentStarter = parseInt(document.getElementById('starterSlider').value) || 1000;
+      let stepStarter = parseInt(document.getElementById('starterStepVal').value) || 10;
+      let newStarter = currentStarter + (direction * stepStarter);
+      if (newStarter > 2000) newStarter = 2000;
+      if (newStarter < 1000) newStarter = 1000;
+      document.getElementById('starterSlider').value = newStarter;
+      updateStarterFromSlider(newStarter);
+
+      // 2. Tinh chỉnh Bơm nhiên liệu (Pump)
+      let currentPump = parseInt(document.getElementById('pumpSlider').value) || 1000;
+      let stepPump = parseInt(document.getElementById('pumpStepVal').value) || 10;
+      let newPump = currentPump + (direction * stepPump);
+      if (newPump > 2000) newPump = 2000;
+      if (newPump < 1000) newPump = 1000;
+      document.getElementById('pumpSlider').value = newPump;
+      updatePumpFromSlider(newPump);
+
+      let actionText = direction > 0 ? "TĂNG" : "GIẢM";
+      showToast(`⚡🌊 ĐỒNG BỘ: Đã ${actionText} Đề (${newStarter}µs, ${direction > 0 ? '+' : ''}${direction * stepStarter}) & Bơm (${newPump}µs, ${direction > 0 ? '+' : ''}${direction * stepPump})`, "info", 2000);
+    }
+
     function startPumpCustom() {
       let val = parseInt(document.getElementById('pumpCustomVal').value) || 1000;
       if (val < 1000) val = 1000;
@@ -1706,16 +1758,24 @@
       sendCmd('alloff');
     }
 
-    // --- KEYBOARD SHORTCUTS: SPACEBAR FOR PURGE STOP, SHIFT+SPACE FOR TOTAL SHUTDOWN ---
+    // --- KEYBOARD SHORTCUTS: SPACEBAR FOR PURGE STOP, SHIFT+SPACE FOR TOTAL SHUTDOWN, [ / ] FOR DUAL ADJUST ---
     document.addEventListener('keydown', (e) => {
       const activeElement = document.activeElement;
       const isInput = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA');
-      if ((e.code === 'Space' || e.key === ' ') && !isInput) {
-        e.preventDefault();
-        if (e.shiftKey) {
-          stopAllShutdown();
-        } else {
-          stopEmergencyPurge();
+      if (!isInput) {
+        if (e.code === 'Space' || e.key === ' ') {
+          e.preventDefault();
+          if (e.shiftKey) {
+            stopAllShutdown();
+          } else {
+            stopEmergencyPurge();
+          }
+        } else if (e.key === '[' || e.key === '{') {
+          e.preventDefault();
+          adjustDual(-1);
+        } else if (e.key === ']' || e.key === '}') {
+          e.preventDefault();
+          adjustDual(1);
         }
       }
     });

@@ -1,0 +1,5 @@
+ms,type,mode,stage,egtC,dEgtCps,rpm,targetRpm,pumpUs,flowMlMin,fuelTargetUs,starterUs,ign,valve1,valve2,throttlePct,abortReason,event
+1324,EVENT,WAITING,NONE,,, 0,0,1000,0.0,1000,1000,0,0,0,0,"NONE","CONFIG LOADED from SD"
+7025,EVENT,WAITING,NONE,,, 0,0,1000,0.0,1000,1000,0,0,0,0,"NONE","BOOT SD_LOG_READY"
+7025,EVENT,WAITING,NONE,,, 0,0,1000,0.0,1000,1000,0,0,0,0,"NONE","BOOT Test ECU V1 WebUI/TestWizard"
+7141,EVENT,WAITING,NONE,,, 0,0,1000,0.0,1000,1000,0,0,0,0,"NONE","WIFI API ON ECU_TestV1 http://192.168.4.1"
