@@ -244,6 +244,34 @@ app.post('/api/firmware/upload-bin', express.raw({ type: '*/*', limit: '10mb' })
   }
 });
 
+
+// API Danh sách và tải về 3D STL
+app.get("/api/stl/list", (req, res) => {
+  try {
+    const stlDir = path.join(__dirname, "REFERENCES", "Hardware", "3D Printable Files");
+    if (!fs.existsSync(stlDir)) return res.json({ files: [] });
+    const files = fs.readdirSync(stlDir).filter(f => f.endsWith(".stl")).map(f => {
+      const stats = fs.statSync(path.join(stlDir, f));
+      return { filename: f, size: stats.size, downloadUrl: `/api/stl/download/${encodeURIComponent(f)}` };
+    });
+    res.json({ files });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/stl/download/:filename", (req, res) => {
+  const filename = req.params.filename;
+  const stlPath = path.join(__dirname, "REFERENCES", "Hardware", "3D Printable Files", filename);
+  if (fs.existsSync(stlPath)) {
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.sendFile(stlPath);
+  } else {
+    res.status(404).json({ error: "Không tìm thấy file STL" });
+  }
+});
+
 app.use(express.static(toolsDir, {
   etag: false,
   setHeaders: (res, filePath) => {

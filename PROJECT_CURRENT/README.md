@@ -1,7 +1,7 @@
-# PROJECT_CURRENT — ECU Manual V1 (Version 8.0)
+# PROJECT_CURRENT — ECU Manual V1 (Version 7.9)
 
-**Trạng thái**: Phiên bản v8.0 (Hoàn thiện & Ổn định)  
-**Cập nhật**: 2026-08-24  
+**Trạng thái**: Phiên bản v7.9 (Hoàn thiện & Ổn định)  
+**Cập nhật**: 2026-08-19  
 
 ---
 
@@ -11,12 +11,19 @@
 PROJECT_CURRENT/
 │
 ├── Firmware/ECU_ManualV1/
-│   └── ECU_ManualV1.ino           ← Firmware ESP32 (Arduino IDE / GitHub Actions, v8.0)
+│   └── ECU_ManualV1.ino           ← Firmware ESP32 (Arduino IDE / GitHub Actions, v7.9)
 │
 ├── Tools/
-│   └── index.html                 ← Web Dashboard & Web Serial ESP32 Flasher (Chrome/Edge, v8.0)
+│   └── index.html                 ← Web Dashboard & Web Serial ESP32 Flasher (Chrome/Edge, v7.9)
 │
 ├── Hardware/
+│   ├── 3D Printable Files/        ← File in 3D (Bendix Sleeve, Giá đỡ Motor Đề)
+│   │   ├── Bendix Sleeve_10mm_NoSpring_Reinforced.stl   ← Ống áo Bendix cốt 10mm (Tự văng không lò xo)
+│   │   ├── Bendix Sleeve_10.4mm_NoSpring_Reinforced.stl ← Ống áo Bendix cốt 10.4mm (Tự văng không lò xo)
+│   │   ├── Bendix Sleeve_Reinforced.stl                ← Ống áo Bendix cốt 9mm (Bản gia cường)
+│   │   ├── Bendix Sleeve.stl                           ← Ống áo Bendix cốt 9mm (Bản gốc)
+│   │   ├── Brushless motor mount.stl                   ← Giá đỡ motor không chổi than
+│   │   └── Brushed motor mount.stl                     ← Giá đỡ motor chổi than
 │   ├── ECU_JET_20260723.net       ← Netlist PCB (PADS)
 │   └── SCH_MinijetengineECU_20260723.json ← Sơ đồ mạch ECU (EasyEDA JSON)
 │
@@ -87,7 +94,7 @@ PROJECT_CURRENT/
 
 ---
 
-## Tính Năng Chính & Cải Tiến (v8.0)
+## Tính Năng Chính & Cải Tiến (v7.6)
 
 - **Kiến Trúc Đa Nhân FreeRTOS Cô Lập Tuyệt Đối (Multi-Core Isolation)**:
   - **Core 1 (Engine Control Core)**: Xử lý độc quyền các tác vụ thời gian thực mức phần cứng (RPM ISR, cảm biến EGT SPI, điều xung ESC PWM, bộ lọc RPM 7 tầng, logic ngắt khẩn cấp). Đảm bảo tính thời gian thực 100% không bị trễ do mạng hay thẻ SD.
