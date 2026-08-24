@@ -1,5 +1,9 @@
 # Ardu ECU Manual V1 - Changelog & Version History
 
+## [v8.0] - 2026-08-24
+- **CI/CD Auto Release**: Automatically incremented version to v8.0.
+- Synchronized Web UI v8.0 and Firmware ECU_ManualV1.ino (VER=8.0).
+
 ## [v7.9] - 2026-08-19
 - **CI/CD GitHub Actions & Fixed Runner Support**:
   - Hỗ trợ đầy đủ GitHub Actions Runner (GitHub-hosted `ubuntu-latest` và Self-hosted Runner) để tự động biên dịch `firmware.bin` ngay khi push commit.
